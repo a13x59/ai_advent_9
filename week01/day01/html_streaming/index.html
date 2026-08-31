@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek Stream</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 700px; margin: auto; }
+        textarea { width: 100%; height: 80px; padding: 8px; }
+        button { padding: 10px 20px; margin-top: 10px; }
+        #output { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; min-height: 60px; border: 1px solid #ddd; }
+        .error { color: #d32f2f; }
+    </style>
+</head>
+<body>
+    <h2>📡 DeepSeek (потоковый режим)</h2>
+    <textarea id="question">Привет! Как дела?</textarea>
+    <br>
+    <button onclick="sendStream()">Отправить</button>
+    <div id="output"></div>
+
+    <script>
+        // ВСТАВЬТЕ КЛЮЧ
+        const API_KEY = "";
+        const API_URL = "https://api.deepseek.com/v1/chat/completions";
+
+        async function sendStream() {
+            const question = document.getElementById('question').value.trim();
+            const output = document.getElementById('output');
+            if (!question) {
+                output.textContent = '⚠️ Введите вопрос.';
+                return;
+            }
+
+            output.textContent = '';  // очищаем
+            const errorClass = 'error';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'deepseek-chat',
+                        messages: [{ role: 'user', content: question }],
+                        stream: true   // ← поток
+                    })
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errText}`);
+                }
+
+                // Читаем поток (ReadableStream)
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    // Разделяем по "\n\n" (SSE-сообщения)
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop(); // оставляем неполную часть
+
+                    for (const part of parts) {
+                        if (!part) continue;
+                        // Каждая часть может содержать несколько строк "data: ..."
+                        const lines = part.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const payload = line.slice(6);
+                                if (payload === '[DONE]') continue;
+                                try {
+                                    const json = JSON.parse(payload);
+                                    const delta = json.choices[0].delta;
+                                    if (delta.content) {
+                                        output.textContent += delta.content;  // добавляем по кусочкам
+                                    }
+                                } catch (e) {
+                                    // игнорируем
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // если в буфере осталось что-то недопарсенное, можно попробовать обработать
+                if (buffer && buffer.startsWith('data: ')) {
+                    // ... аналогично
+                }
+
+            } catch (error) {
+                output.textContent = `❌ Ошибка: ${error.message}`;
+                output.classList.add(errorClass);
+            }
+        }
+    </script>
+</body>
+</html>

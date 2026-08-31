@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek API тест</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+        textarea { width: 100%; height: 120px; padding: 8px; font-size: 16px; }
+        button { padding: 10px 20px; font-size: 16px; margin-top: 10px; cursor: pointer; }
+        #output { margin-top: 20px; white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 6px; }
+        .error { color: #d32f2f; }
+    </style>
+</head>
+<body>
+    <h2>📡 Запрос к DeepSeek</h2>
+    <textarea id="question" placeholder="Введите ваш вопрос...">Привет! Как дела?</textarea>
+    <br>
+    <button onclick="sendRequest()">Отправить</button>
+    <div id="output"></div>
+
+    <script>
+        // ВСТАВЬТЕ СЮДА ВАШ API-КЛЮЧ
+        const API_KEY = "";
+        const API_URL = "https://api.deepseek.com/v1/chat/completions";
+
+        async function sendRequest() {
+            const question = document.getElementById('question').value.trim();
+            const output = document.getElementById('output');
+
+            if (!question) {
+                output.textContent = '⚠️ Введите вопрос.';
+                return;
+            }
+
+            output.textContent = '⏳ Отправка запроса...';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "deepseek-chat",      // или "deepseek-reasoner"
+                        messages: [{ role: "user", content: question }],
+                        stream: false
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                const answer = data.choices[0].message.content;
+                output.textContent = `✅ ${answer}`;
+            } catch (error) {
+                output.textContent = `❌ Ошибка: ${error.message}`;
+                output.classList.add('error');
+            }
+        }
+    </script>
+</body>
+</html>
