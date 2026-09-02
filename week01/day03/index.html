@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Сравнение подходов DeepSeek (параллельно)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #f0f2f5;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+
+        .input-area {
+            background: white;
+            padding: 20px 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            align-items: flex-start;
+        }
+
+        .input-area textarea {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #d0d7de;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+            outline: none;
+        }
+
+        .input-area textarea:focus {
+            border-color: #0084ff;
+        }
+
+        .input-area button {
+            padding: 12px 32px;
+            background: #0084ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+            align-self: center;
+        }
+
+        .input-area button:hover {
+            background: #006edb;
+        }
+
+        .input-area button:disabled {
+            background: #a0c8f0;
+            cursor: not-allowed;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .result-card .header {
+            padding: 14px 20px;
+            font-weight: 600;
+            font-size: 16px;
+            background: #f6f8fa;
+            border-bottom: 1px solid #e1e4e8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .result-card .body {
+            padding: 16px 20px;
+            flex: 1;
+            overflow-y: auto;
+            max-height: 320px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .result-card .body .sub-block {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed #ddd;
+        }
+
+        .result-card .body .sub-block:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+
+        .result-card .body .sub-label {
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
+
+        .status {
+            color: #888;
+            font-style: italic;
+        }
+
+        .error-text {
+            color: #d32f2f;
+        }
+
+        .card-arbiter {
+            grid-column: 1 / -1;
+            background: #e8f0fe;
+            border: 2px solid #0084ff;
+        }
+
+        .card-arbiter .header {
+            background: #dce6f5;
+        }
+
+        .loading-dots::after {
+            content: '...';
+            animation: dots 1.2s steps(4) infinite;
+        }
+
+        @keyframes dots {
+            0% {
+                content: '';
+            }
+            25% {
+                content: '.';
+            }
+            50% {
+                content: '..';
+            }
+            75% {
+                content: '...';
+            }
+            100% {
+                content: '';
+            }
+        }
+
+        @media (max-width: 700px) {
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .input-area {
+                flex-direction: column;
+            }
+
+            .input-area button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧪 Сравнение методов решения (параллельно)</h1>
+
+    <div class="input-area">
+        <textarea id="taskInput" placeholder="Введите задачу (например: 'Как увеличить продажи интернет-магазина?')">Как увеличить продажи интернет-магазина?</textarea>
+        <button id="solveBtn" onclick="solveTask()">Решить</button>
+    </div>
+
+    <div class="results-grid">
+        <!-- 1. Прямой ответ -->
+        <div class="result-card" id="card-direct">
+            <div class="header">📌 Прямой ответ</div>
+            <div class="body" id="result-direct"><span class="status">Ожидает запроса...</span></div>
+        </div>
+
+        <!-- 2. Пошаговый -->
+        <div class="result-card" id="card-step">
+            <div class="header">📝 Пошаговый</div>
+            <div class="body" id="result-step"><span class="status">Ожидает запроса...</span></div>
+        </div>
+
+        <!-- 3. Мета-промптинг -->
+        <div class="result-card" id="card-meta">
+            <div class="header">🧠 Мета-промптинг</div>
+            <div class="body" id="result-meta">
+                <div id="meta-status" class="status">Ожидает запроса...</div>
+                <div class="sub-block" id="meta-prompt-block" style="display:none;">
+                    <div class="sub-label">⚙️ Сгенерированный промпт:</div>
+                    <div id="meta-prompt-text"
+                         style="background:#f4f6f8; padding:8px; border-radius:6px; white-space:pre-wrap;"></div>
+                </div>
+                <div class="sub-block" id="meta-answer-block" style="display:none;">
+                    <div class="sub-label">💬 Ответ на основе промпта:</div>
+                    <div id="meta-answer-text" style="white-space:pre-wrap;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Группа экспертов -->
+        <div class="result-card" id="card-experts">
+            <div class="header">👥 Группа экспертов</div>
+            <div class="body" id="result-experts"><span class="status">Ожидает запроса...</span></div>
+        </div>
+
+        <!-- Арбитр (занимает всю ширину) -->
+        <div class="result-card card-arbiter" id="card-arbiter" style="display:none;">
+            <div class="header">⚖️ Вердикт арбитра</div>
+            <div class="body" id="result-arbiter"><span class="status">Ожидает...</span></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ------------------------------------------------------------------
+    // 1. ВСТАВЬТЕ ВАШ API-КЛЮЧ
+    // ------------------------------------------------------------------
+    const API_KEY = "sk-...";   // замените на реальный
+
+    const API_URL = "https://api.deepseek.com/v1/chat/completions";
+
+    // ------------------------------------------------------------------
+    // 2. Вспомогательные функции
+    // ------------------------------------------------------------------
+    function setResult(id, text, isError = false) {
+        const el = document.getElementById(id);
+        if (isError) {
+            el.innerHTML = `<span class="error-text">❌ ${text}</span>`;
+        } else {
+            el.innerHTML = text;
+        }
+    }
+
+    function setStatus(id, message) {
+        document.getElementById(id).innerHTML = `<span class="status">${message}</span>`;
+    }
+
+    async function callAPI(messages) {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: messages,
+                stream: false
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Функции для каждого метода (возвращают Promise)
+    // ------------------------------------------------------------------
+    async function solveDirect(task) {
+        try {
+            const answer = await callAPI([
+                {role: 'user', content: task}
+            ]);
+            setResult('result-direct', answer);
+            return {method: 'Прямой', answer};
+        } catch (error) {
+            const msg = 'Ошибка прямого запроса: ' + error.message;
+            setResult('result-direct', msg, true);
+            return {method: 'Прямой', answer: null, error: msg};
+        }
+    }
+
+    async function solveStep(task) {
+        try {
+            const answer = await callAPI([
+                {role: 'system', content: 'Решай задачу пошагово, подробно описывая каждый шаг.'},
+                {role: 'user', content: task}
+            ]);
+            setResult('result-step', answer);
+            return {method: 'Пошаговый', answer};
+        } catch (error) {
+            const msg = 'Ошибка пошагового запроса: ' + error.message;
+            setResult('result-step', msg, true);
+            return {method: 'Пошаговый', answer: null, error: msg};
+        }
+    }
+
+    async function solveMeta(task) {
+        const metaStatus = document.getElementById('meta-status');
+        const metaPromptBlock = document.getElementById('meta-prompt-block');
+        const metaAnswerBlock = document.getElementById('meta-answer-block');
+        const metaPromptText = document.getElementById('meta-prompt-text');
+        const metaAnswerText = document.getElementById('meta-answer-text');
+
+        // Сброс мета-блока
+        metaPromptBlock.style.display = 'none';
+        metaAnswerBlock.style.display = 'none';
+        metaStatus.style.display = 'block';
+        metaStatus.textContent = '⏳ Генерация промпта...';
+        metaStatus.className = 'status';
+
+        try {
+            // 1) Генерируем промпт
+            const promptGeneration = await callAPI([
+                {
+                    role: 'user',
+                    content: `Составь подробный промпт (инструкцию) для решения следующей задачи, который можно использовать для получения наилучшего ответа от языковой модели. Задача: ${task}. Выведи только промпт, без лишнего текста.`
+                }
+            ]);
+
+            // Показываем промпт
+            metaPromptText.textContent = promptGeneration;
+            metaPromptBlock.style.display = 'block';
+            metaStatus.style.display = 'none'; // скрываем статус
+
+            // 2) Используем промпт как system
+            metaStatus.style.display = 'block';
+            metaStatus.textContent = '⏳ Отправка запроса с сгенерированным промптом...';
+            const metaAnswer = await callAPI([
+                {role: 'system', content: promptGeneration},
+                {role: 'user', content: task}
+            ]);
+
+            metaAnswerText.textContent = metaAnswer;
+            metaAnswerBlock.style.display = 'block';
+            metaStatus.style.display = 'none'; // скрываем статус
+
+            return {method: 'Мета-промптинг', answer: metaAnswer};
+        } catch (error) {
+            const msg = 'Ошибка мета-промптинга: ' + error.message;
+            metaStatus.style.display = 'block';
+            metaStatus.textContent = '❌ ' + msg;
+            metaStatus.className = 'error-text';
+            metaPromptBlock.style.display = 'none';
+            metaAnswerBlock.style.display = 'none';
+            return {method: 'Мета-промптинг', answer: null, error: msg};
+        }
+    }
+
+    async function solveExperts(task) {
+        try {
+            const answer = await callAPI([
+                {
+                    role: 'system',
+                    content: 'Ты — группа экспертов: аналитик, инженер, критик. Реши задачу, представив мнение каждого эксперта. Ответ должен содержать разделы: Аналитик: ..., Инженер: ..., Критик: ...'
+                },
+                {role: 'user', content: task}
+            ]);
+            setResult('result-experts', answer);
+            return {method: 'Группа экспертов', answer};
+        } catch (error) {
+            const msg = 'Ошибка группы экспертов: ' + error.message;
+            setResult('result-experts', msg, true);
+            return {method: 'Группа экспертов', answer: null, error: msg};
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Основная функция (запускает все параллельно)
+    // ------------------------------------------------------------------
+    async function solveTask() {
+        const task = document.getElementById('taskInput').value.trim();
+        if (!task) {
+            alert('Введите задачу');
+            return;
+        }
+
+        const btn = document.getElementById('solveBtn');
+        btn.disabled = true;
+
+        // Сбросить арбитра
+        document.getElementById('card-arbiter').style.display = 'none';
+
+        // Установить статусы "Загрузка..." для всех карточек
+        setStatus('result-direct', '⏳ Загрузка...');
+        setStatus('result-step', '⏳ Загрузка...');
+        setStatus('result-experts', '⏳ Загрузка...');
+        // Для мета-промптинга сбрасываем внутреннее состояние (уже есть внутри solveMeta)
+
+        // Запускаем все методы параллельно
+        const results = await Promise.allSettled([
+            solveDirect(task),
+            solveStep(task),
+            solveMeta(task),
+            solveExperts(task)
+        ]);
+
+        // Извлекаем ответы (успешные или с ошибками)
+        const allAnswers = [];
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                allAnswers.push(result.value);
+            } else {
+                // Если сам Promise упал (редко, т.к. ошибки ловятся внутри функций)
+                const methodNames = ['Прямой', 'Пошаговый', 'Мета-промптинг', 'Группа экспертов'];
+                const errorMsg = 'Неизвестная ошибка: ' + result.reason;
+                allAnswers.push({method: methodNames[index], answer: null, error: errorMsg});
+                // Показываем ошибку в соответствующей карточке (если не была показана)
+                const ids = ['result-direct', 'result-step', 'result-experts'];
+                if (index < 3) {
+                    setResult(ids[index], errorMsg, true);
+                } else {
+                    // для мета-промптинга уже есть своя обработка
+                }
+            }
+        });
+
+        // Запускаем арбитра, если есть хотя бы один ответ
+        const hasAnyAnswer = allAnswers.some(a => a.answer !== null);
+        if (hasAnyAnswer) {
+            const arbiterPrompt = buildArbiterPrompt(task, allAnswers);
+            document.getElementById('card-arbiter').style.display = 'block';
+            setStatus('result-arbiter', '⏳ Арбитр анализирует ответы...');
+
+            try {
+                const arbiterVerdict = await callAPI([
+                    {role: 'user', content: arbiterPrompt}
+                ]);
+                setResult('result-arbiter', arbiterVerdict);
+            } catch (error) {
+                setResult('result-arbiter', 'Ошибка арбитра: ' + error.message, true);
+            }
+        } else {
+            // Если все ответы с ошибками, показываем сообщение
+            document.getElementById('card-arbiter').style.display = 'block';
+            setResult('result-arbiter', 'Не удалось получить ни одного ответа от методов.', true);
+        }
+
+        btn.disabled = false;
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Вспомогательная функция для арбитра
+    // ------------------------------------------------------------------
+    function buildArbiterPrompt(task, answers) {
+        let text = `Ниже приведены четыре ответа на задачу: "${task}". Ответы получены разными методами. Проанализируй их и ответь на вопросы:
+1) Отличаются ли ответы друг от друга? (да/нет, если да – то в чём основные различия)
+2) Какой из методов (Прямой, Пошаговый, Мета-промптинг, Группа экспертов) дал наиболее точный и полный ответ? Обоснуй. Результаты выведи в виде HTML таблицы.
+
+Ответы:
+`;
+        answers.forEach((item, index) => {
+            const answerText = item.answer !== null ? item.answer : (item.error || 'Ошибка получения ответа');
+            text += `\n--- МЕТОД: ${item.method} ---\n${answerText}\n`;
+        });
+        text += `\n--- ВЕРДИКТ ---`;
+        return text;
+    }
+</script>
+</body>
+</html>
