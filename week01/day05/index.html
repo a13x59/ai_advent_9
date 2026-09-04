@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Model Comparator · 2026</title>
+
+    <!-- Google Fonts (Inter) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
+
+    <!-- Font Awesome 6 (free) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+
+    <style>
+        /* ----- reset & base ----- */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg-primary: #f6f8fc;
+            --bg-card: rgba(255, 255, 255, 0.75);
+            --bg-glass: rgba(255, 255, 255, 0.55);
+            --border-glass: rgba(255, 255, 255, 0.25);
+            --shadow-soft: 0 20px 60px -12px rgba(0, 20, 40, 0.12);
+            --shadow-card: 0 8px 32px -8px rgba(0, 20, 40, 0.08);
+            --text-primary: #0b1a2e;
+            --text-secondary: #3a4e66;
+            --text-muted: #6b7f94;
+            --accent-blue: #2f6eff;
+            --accent-blue-hover: #1a56e0;
+            --accent-purple: #7c4dff;
+            --accent-cyan: #00bcd4;
+            --accent-green: #00c853;
+            --accent-orange: #ff9100;
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+            --transition: 0.25s cubic-bezier(0.2, 0, 0, 1);
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 32px 24px 48px;
+            display: flex;
+            justify-content: center;
+            background-image: radial-gradient(ellipse at 10% 20%, rgba(47, 110, 255, 0.04) 0%, transparent 60%),
+                radial-gradient(ellipse at 90% 80%, rgba(124, 77, 255, 0.04) 0%, transparent 60%);
+        }
+
+        .app {
+            max-width: 1360px;
+            width: 100%;
+        }
+
+        /* ----- header ----- */
+        .app-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px 24px;
+            margin-bottom: 28px;
+        }
+
+        .app-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .app-header h1 i {
+            color: var(--accent-blue);
+            font-size: 30px;
+        }
+
+        .app-header .badge {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: var(--bg-card);
+            padding: 6px 16px;
+            border-radius: 100px;
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass);
+            box-shadow: var(--shadow-card);
+        }
+
+        /* ----- input row ----- */
+        .input-row {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+
+        .input-row .prompt-wrap {
+            flex: 1;
+            min-width: 240px;
+            position: relative;
+        }
+
+        .input-row .prompt-wrap textarea {
+            width: 100%;
+            height: 56px;
+            padding: 14px 18px;
+            font-size: 15px;
+            font-family: var(--font);
+            font-weight: 500;
+            color: var(--text-primary);
+            background: var(--bg-card);
+            border: 1.5px solid rgba(0, 0, 0, 0.06);
+            border-radius: var(--radius-md);
+            outline: none;
+            transition: var(--transition);
+            resize: vertical;
+            min-height: 56px;
+            max-height: 160px;
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-card);
+            line-height: 1.5;
+        }
+
+        .input-row .prompt-wrap textarea:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 4px rgba(47, 110, 255, 0.12), var(--shadow-card);
+        }
+
+        .input-row .prompt-wrap textarea::placeholder {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .btn-run {
+            flex-shrink: 0;
+            height: 56px;
+            padding: 0 36px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: var(--font);
+            background: var(--accent-blue);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 16px rgba(47, 110, 255, 0.25);
+        }
+
+        .btn-run:hover {
+            background: var(--accent-blue-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(47, 110, 255, 0.30);
+        }
+
+        .btn-run:active {
+            transform: translateY(0);
+            box-shadow: 0 4px 16px rgba(47, 110, 255, 0.20);
+        }
+
+        .btn-run:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: 0 4px 16px rgba(47, 110, 255, 0.10);
+        }
+
+        .btn-run i {
+            font-size: 18px;
+        }
+
+        /* ----- models grid ----- */
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .model-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-glass);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            transition: var(--transition);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .model-card:hover {
+            box-shadow: var(--shadow-soft);
+        }
+
+        .model-card .card-header {
+            padding: 16px 20px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .model-card .card-header .model-name {
+            font-size: 17px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .model-card .card-header .model-name .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .model-card .card-header .model-name .dot.weak {
+            background: var(--accent-orange);
+        }
+        .model-card .card-header .model-name .dot.medium {
+            background: var(--accent-blue);
+        }
+        .model-card .card-header .model-name .dot.strong {
+            background: var(--accent-purple);
+        }
+
+        .model-card .card-header .model-tag {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.04);
+            padding: 2px 12px;
+            border-radius: 100px;
+        }
+
+        .model-card .card-body {
+            padding: 16px 20px 20px;
+            flex: 1;
+            min-height: 100px;
+        }
+
+        .model-card .card-body .response-text {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .model-card .card-body .response-text .placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            font-weight: 400;
+        }
+
+        .model-card .card-body .loader {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .model-card .card-body .loader .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2.5px solid rgba(0, 0, 0, 0.06);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .model-card .card-body .error-msg {
+            color: #d32f2f;
+            font-size: 14px;
+            background: rgba(211, 47, 47, 0.06);
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+        }
+
+        /* ----- statistics row ----- */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(12px);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-glass);
+            padding: 16px 20px;
+            box-shadow: var(--shadow-card);
+            transition: var(--transition);
+        }
+
+        .stat-card .stat-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card .stat-value .sub {
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--text-muted);
+        }
+
+        .stat-card .stat-value .highlight {
+            color: var(--accent-blue);
+        }
+
+        .stat-card .stat-value .highlight.purple {
+            color: var(--accent-purple);
+        }
+        .stat-card .stat-value .highlight.orange {
+            color: var(--accent-orange);
+        }
+        .stat-card .stat-value .highlight.green {
+            color: var(--accent-green);
+        }
+
+        /* ----- output area (result) ----- */
+        .output-section {
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-glass);
+            box-shadow: var(--shadow-card);
+            padding: 20px 24px 24px;
+            margin-top: 4px;
+        }
+
+        .output-section .output-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .output-section .output-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-primary);
+        }
+
+        .output-section .output-header h3 i {
+            color: var(--accent-blue);
+        }
+
+        .output-section .output-header .status-badge {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.04);
+            padding: 4px 14px;
+            border-radius: 100px;
+        }
+
+        .output-section .output-content {
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+            min-height: 60px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .output-section .output-content .empty-state {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .output-section .output-content .loader {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .output-section .output-content .loader .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2.5px solid rgba(0, 0, 0, 0.06);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        .output-section .output-content .error-msg {
+            color: #d32f2f;
+            font-size: 14px;
+            background: rgba(211, 47, 47, 0.06);
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+        }
+
+        /* ----- responsive ----- */
+        @media (max-width: 920px) {
+            .models-grid,
+            .stats-row {
+                grid-template-columns: 1fr 1fr;
+            }
+            .models-grid .model-card:last-child {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 16px 12px 32px;
+            }
+            .app-header h1 {
+                font-size: 22px;
+            }
+            .input-row .prompt-wrap textarea {
+                height: 48px;
+                min-height: 48px;
+                font-size: 14px;
+                padding: 10px 14px;
+            }
+            .btn-run {
+                height: 48px;
+                padding: 0 22px;
+                font-size: 14px;
+                width: 100%;
+                justify-content: center;
+            }
+            .input-row {
+                flex-direction: column;
+            }
+            .models-grid,
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+            .models-grid .model-card:last-child {
+                grid-column: span 1;
+            }
+            .model-card .card-header {
+                padding: 12px 16px 10px;
+            }
+            .model-card .card-body {
+                padding: 12px 16px 16px;
+                min-height: 80px;
+            }
+            .stat-card {
+                padding: 12px 16px;
+            }
+            .stat-card .stat-value {
+                font-size: 16px;
+            }
+            .output-section {
+                padding: 16px 16px 20px;
+            }
+            .output-section .output-content {
+                max-height: 240px;
+            }
+        }
+
+        /* scrollbar */
+        .output-content::-webkit-scrollbar {
+            width: 5px;
+        }
+        .output-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .output-content::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.10);
+            border-radius: 100px;
+        }
+        .output-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.18);
+        }
+
+        /* utility */
+        .mt-2 {
+            margin-top: 8px;
+        }
+        .text-muted {
+            color: var(--text-muted);
+        }
+        .flex {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .gap-1 {
+            gap: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app" id="app">
+
+        <!-- HEADER -->
+        <header class="app-header">
+            <h1>
+                <i class="fas fa-brain"></i>
+                Model Comparator
+            </h1>
+            <span class="badge">
+                <i class="far fa-clock" style="margin-right:6px;"></i>
+                2026 · DeepSeek
+            </span>
+        </header>
+
+        <!-- INPUT ROW -->
+        <div class="input-row">
+            <div class="prompt-wrap">
+                <textarea id="promptInput" placeholder="Введите ваш запрос (промпт) …" rows="1"></textarea>
+            </div>
+            <button class="btn-run" id="runBtn">
+                <i class="fas fa-play"></i>
+                Запустить
+            </button>
+        </div>
+
+        <!-- 3 MODEL CARDS -->
+        <div class="models-grid" id="modelsGrid">
+            <!-- WEAK -->
+            <div class="model-card" data-model="weak">
+                <div class="card-header">
+                    <span class="model-name">
+                        <span class="dot weak"></span>
+                        Слабая
+                    </span>
+                    <span class="model-tag">DeepSeek-V4-Flash</span>
+                </div>
+                <div class="card-body" id="weakBody">
+                    <div class="response-text">
+                        <span class="placeholder">Ожидание запроса…</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MEDIUM -->
+            <div class="model-card" data-model="medium">
+                <div class="card-header">
+                    <span class="model-name">
+                        <span class="dot medium"></span>
+                        Средняя
+                    </span>
+                    <span class="model-tag">DeepSeek-V4-Coder</span>
+                </div>
+                <div class="card-body" id="mediumBody">
+                    <div class="response-text">
+                        <span class="placeholder">Ожидание запроса…</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STRONG -->
+            <div class="model-card" data-model="strong">
+                <div class="card-header">
+                    <span class="model-name">
+                        <span class="dot strong"></span>
+                        Сильная
+                    </span>
+                    <span class="model-tag">DeepSeek-V4-Pro</span>
+                </div>
+                <div class="card-body" id="strongBody">
+                    <div class="response-text">
+                        <span class="placeholder">Ожидание запроса…</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATISTICS ROW -->
+        <div class="stats-row" id="statsRow">
+            <!-- Weak stats -->
+            <div class="stat-card" id="statsWeak">
+                <div class="stat-label"><i class="far fa-hourglass" style="margin-right:6px;"></i>Слабая</div>
+                <div class="stat-value">
+                    <span id="sWeakTime">—</span>
+                    <span class="sub">ms</span>
+                    <span style="margin-left:12px;" id="sWeakTokens">—</span>
+                    <span class="sub">ток.</span>
+                    <span style="margin-left:12px;" id="sWeakCost">—</span>
+                    <span class="sub">$</span>
+                </div>
+            </div>
+            <!-- Medium stats -->
+            <div class="stat-card" id="statsMedium">
+                <div class="stat-label"><i class="far fa-hourglass" style="margin-right:6px;"></i>Средняя</div>
+                <div class="stat-value">
+                    <span id="sMediumTime">—</span>
+                    <span class="sub">ms</span>
+                    <span style="margin-left:12px;" id="sMediumTokens">—</span>
+                    <span class="sub">ток.</span>
+                    <span style="margin-left:12px;" id="sMediumCost">—</span>
+                    <span class="sub">$</span>
+                </div>
+            </div>
+            <!-- Strong stats -->
+            <div class="stat-card" id="statsStrong">
+                <div class="stat-label"><i class="far fa-hourglass" style="margin-right:6px;"></i>Сильная</div>
+                <div class="stat-value">
+                    <span id="sStrongTime">—</span>
+                    <span class="sub">ms</span>
+                    <span style="margin-left:12px;" id="sStrongTokens">—</span>
+                    <span class="sub">ток.</span>
+                    <span style="margin-left:12px;" id="sStrongCost">—</span>
+                    <span class="sub">$</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- OUTPUT SECTION (result) -->
+        <div class="output-section">
+            <div class="output-header">
+                <h3><i class="fas fa-chart-simple"></i> Результат</h3>
+                <span class="status-badge" id="outputStatus">Ожидание</span>
+            </div>
+            <div class="output-content" id="outputContent">
+                <span class="empty-state">Анализ различий появится здесь после выполнения всех запросов.</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ----- DOM refs -----
+            const promptInput = document.getElementById('promptInput');
+            const runBtn = document.getElementById('runBtn');
+
+            const weakBody = document.getElementById('weakBody');
+            const mediumBody = document.getElementById('mediumBody');
+            const strongBody = document.getElementById('strongBody');
+
+            const sWeakTime = document.getElementById('sWeakTime');
+            const sWeakTokens = document.getElementById('sWeakTokens');
+            const sWeakCost = document.getElementById('sWeakCost');
+            const sMediumTime = document.getElementById('sMediumTime');
+            const sMediumTokens = document.getElementById('sMediumTokens');
+            const sMediumCost = document.getElementById('sMediumCost');
+            const sStrongTime = document.getElementById('sStrongTime');
+            const sStrongTokens = document.getElementById('sStrongTokens');
+            const sStrongCost = document.getElementById('sStrongCost');
+
+            const outputContent = document.getElementById('outputContent');
+            const outputStatus = document.getElementById('outputStatus');
+
+            // ----- DeepSeek config -----
+            // ВСТАВЬТЕ ВАШ API КЛЮЧ НИЖЕ:
+            const API_KEY = 'sk-...'; // <-- пользователь вставит свой ключ
+            const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+            // Модели и их конфигурации (без temperature и system)
+            const MODELS = {
+                weak: {
+                    id: 'deepseek-chat',
+                    label: 'DeepSeek-V4-Flash',
+                    tag: 'deepseek-chat',
+                    dotClass: 'weak'
+                },
+                medium: {
+                    id: 'deepseek-coder',
+                    label: 'DeepSeek-V4-Coder',
+                    tag: 'deepseek-coder',
+                    dotClass: 'medium'
+                },
+                strong: {
+                    id: 'deepseek-reasoner',
+                    label: 'DeepSeek-V4-Pro',
+                    tag: 'deepseek-reasoner',
+                    dotClass: 'strong'
+                }
+            };
+
+            // Цены DeepSeek (за 1M токенов)
+            const PRICING = {
+                'deepseek-chat': { input: 0.14, output: 0.28 },
+                'deepseek-coder': { input: 0.14, output: 0.28 }, // предположительно те же
+                'deepseek-reasoner': { input: 0.55, output: 2.19 }
+            };
+
+            // ----- helpers -----
+            function getBodyEl(modelKey) {
+                const map = { weak: weakBody, medium: mediumBody, strong: strongBody };
+                return map[modelKey];
+            }
+
+            function setLoading(modelKey) {
+                const body = getBodyEl(modelKey);
+                body.innerHTML = `
+                    <div class="loader">
+                        <div class="spinner"></div>
+                        <span>Запрос выполняется…</span>
+                    </div>
+                `;
+            }
+
+            function setResponse(modelKey, text, error = null) {
+                const body = getBodyEl(modelKey);
+                if (error) {
+                    body.innerHTML = `<div class="error-msg"><i class="fas fa-exclamation-circle" style="margin-right:8px;"></i>${escapeHtml(error)}</div>`;
+                    return;
+                }
+                body.innerHTML = `<div class="response-text">${escapeHtml(text)}</div>`;
+            }
+
+            function setStats(modelKey, timeMs, tokens, cost) {
+                const map = {
+                    weak: { time: sWeakTime, tokens: sWeakTokens, cost: sWeakCost },
+                    medium: { time: sMediumTime, tokens: sMediumTokens, cost: sMediumCost },
+                    strong: { time: sStrongTime, tokens: sStrongTokens, cost: sStrongCost }
+                };
+                const el = map[modelKey];
+                if (!el) return;
+                el.time.textContent = timeMs !== null ? timeMs : '—';
+                el.tokens.textContent = tokens !== null ? tokens : '—';
+                el.cost.textContent = cost !== null ? cost.toFixed(6) : '—';
+            }
+
+            function resetStats() {
+                [sWeakTime, sWeakTokens, sWeakCost,
+                    sMediumTime, sMediumTokens, sMediumCost,
+                    sStrongTime, sStrongTokens, sStrongCost
+                ].forEach(el => el.textContent = '—');
+            }
+
+            function resetOutput() {
+                outputContent.innerHTML = `<span class="empty-state">Анализ различий появится здесь после выполнения всех запросов.</span>`;
+                outputStatus.textContent = 'Ожидание';
+            }
+
+            function escapeHtml(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ----- API call (без temperature и system) -----
+            async function callDeepSeek(modelKey, messages, extraOpts = {}) {
+                const cfg = MODELS[modelKey];
+                const startTime = performance.now();
+
+                const payload = {
+                    model: cfg.id,
+                    messages: messages,
+                    max_tokens: 2048,
+                    stream: false,
+                    ...extraOpts
+                };
+
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${API_KEY}`
+                };
+
+                let response;
+                try {
+                    response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload)
+                    });
+                } catch (netErr) {
+                    const elapsed = Math.round(performance.now() - startTime);
+                    return { error: `Ошибка сети: ${netErr.message}`, timeMs: elapsed, tokens: null, cost: null, text: null };
+                }
+
+                const elapsed = Math.round(performance.now() - startTime);
+
+                if (!response.ok) {
+                    let errMsg = `HTTP ${response.status}`;
+                    try {
+                        const errData = await response.json();
+                        if (errData.error && errData.error.message) errMsg = errData.error.message;
+                    } catch (_) { /* ignore */ }
+                    return { error: `Ошибка API: ${errMsg}`, timeMs: elapsed, tokens: null, cost: null, text: null };
+                }
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseErr) {
+                    return { error: `Ошибка парсинга ответа: ${parseErr.message}`, timeMs: elapsed, tokens: null, cost: null,
+                        text: null };
+                }
+
+                const choice = data.choices && data.choices[0];
+                if (!choice) {
+                    return { error: 'Неожиданный формат ответа API', timeMs: elapsed, tokens: null, cost: null, text: null };
+                }
+
+                const text = choice.message?.content || '';
+                const usage = data.usage || {};
+                const inTokens = usage.prompt_tokens || 0;
+                const outTokens = usage.completion_tokens || 0;
+                const totalTokens = usage.total_tokens || inTokens + outTokens;
+
+                const pricing = PRICING[cfg.id] || { input: 0, output: 0 };
+                const cost = (inTokens / 1_000_000) * pricing.input + (outTokens / 1_000_000) * pricing.output;
+
+                return { error: null, timeMs: elapsed, tokens: totalTokens, cost, text };
+            }
+
+            // ----- main run -----
+            async function runComparison() {
+                const prompt = promptInput.value.trim();
+                if (!prompt) {
+                    alert('Пожалуйста, введите промпт.');
+                    return;
+                }
+
+                if (!API_KEY || API_KEY.length < 10) {
+                    alert('Пожалуйста, вставьте ваш API-ключ DeepSeek в переменную API_KEY в коде (строка ~160).');
+                    return;
+                }
+
+                // UI: disable, reset
+                runBtn.disabled = true;
+                runBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Запуск…';
+                resetStats();
+                resetOutput();
+
+                // set loading states for model cards
+                setLoading('weak');
+                setLoading('medium');
+                setLoading('strong');
+
+                // store results
+                const results = {};
+                const modelKeys = ['weak', 'medium', 'strong'];
+
+                // запускаем все три параллельно
+                const promises = modelKeys.map(async (key) => {
+                    const messages = [{ role: 'user', content: prompt }];
+                    const result = await callDeepSeek(key, messages);
+                    results[key] = result;
+                    return { key, result };
+                });
+
+                await Promise.allSettled(promises);
+
+                // обновляем UI для каждой модели (статистика и ответ)
+                let allSuccess = true;
+                for (const key of modelKeys) {
+                    const res = results[key];
+                    if (!res) {
+                        setResponse(key, '', 'Неизвестная ошибка');
+                        setStats(key, null, null, null);
+                        allSuccess = false;
+                        continue;
+                    }
+                    if (res.error) {
+                        setResponse(key, '', res.error);
+                        setStats(key, res.timeMs || null, null, null);
+                        allSuccess = false;
+                    } else {
+                        setResponse(key, res.text);
+                        setStats(key, res.timeMs, res.tokens, res.cost);
+                    }
+                }
+
+                // --- теперь формируем анализ с помощью сильной модели ---
+                // Собираем тексты ответов (или сообщения об ошибках)
+                const weakText = results.weak && !results.weak.error ? results.weak.text : (results.weak?.error || 'Ошибка получения ответа');
+                const mediumText = results.medium && !results.medium.error ? results.medium.text : (results.medium?.error || 'Ошибка получения ответа');
+                const strongText = results.strong && !results.strong.error ? results.strong.text : (results.strong?.error || 'Ошибка получения ответа');
+
+                // Формируем промпт для анализа
+                const analysisPrompt = `
+                    Сравни ответы трёх моделей на следующий запрос пользователя:
+                    "${prompt}"
+
+                    Ответы моделей:
+                    - Слабая (DeepSeek-V4-Flash): ${weakText}
+                    - Средняя (DeepSeek-V4-Coder): ${mediumText}
+                    - Сильная (DeepSeek-V4-Pro): ${strongText}
+
+                    Напиши короткий вывод (не более 5 предложений) о различиях между моделями по качеству ответов, скорости и ресурсоёмкости (стоимости).
+                    Упомяни, какая модель лучше справилась с задачей и почему.
+                `;
+
+                // Показываем статус загрузки в нижней панели
+                outputContent.innerHTML = `
+                    <div class="loader">
+                        <div class="spinner"></div>
+                        <span>Генерация анализа…</span>
+                    </div>
+                `;
+                outputStatus.textContent = 'Анализ…';
+
+                // Отправляем запрос к сильной модели (используем strong)
+                const analysisMessages = [{ role: 'user', content: analysisPrompt }];
+                // Можно добавить системный промпт для краткости, но оставим как есть
+                const analysisResult = await callDeepSeek('strong', analysisMessages, { temperature: 0.3 });
+
+                if (analysisResult.error) {
+                    outputContent.innerHTML = `<div class="error-msg"><i class="fas fa-exclamation-circle" style="margin-right:8px;"></i>Ошибка при генерации анализа: ${escapeHtml(analysisResult.error)}</div>`;
+                    outputStatus.textContent = '❌ Ошибка анализа';
+                } else {
+                    outputContent.innerHTML = `<div class="response-text">${escapeHtml(analysisResult.text)}</div>`;
+                    outputStatus.textContent = '✅ Анализ завершён';
+                }
+
+                // Восстанавливаем кнопку
+                runBtn.disabled = false;
+                runBtn.innerHTML = '<i class="fas fa-play"></i> Запустить';
+
+                // Проверяем, были ли ошибки в основных запросах
+                const successCount = Object.values(results).filter(r => r && !r.error).length;
+                if (successCount === 0) {
+                    outputStatus.textContent = '❌ Все основные запросы завершились ошибкой';
+                } else if (successCount < modelKeys.length) {
+                    outputStatus.textContent = `⚠️ ${successCount}/${modelKeys.length} основных запросов выполнено, анализ готов`;
+                } else {
+                    // если все успешно, статус уже обновлён выше
+                }
+            }
+
+            // ----- event binding -----
+            runBtn.addEventListener('click', runComparison);
+
+            promptInput.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    runBtn.click();
+                }
+            });
+
+            promptInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+            });
+
+            if (!API_KEY || API_KEY.length < 10) {
+                console.warn('🔑 Вставьте ваш API-ключ DeepSeek в переменную API_KEY (строка ~160)');
+            }
+
+            console.log('🧠 Model Comparator ready · 2026');
+        })();
+    </script>
+
+</body>
+</html>
