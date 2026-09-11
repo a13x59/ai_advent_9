@@ -1,0 +1,634 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Agent — DeepSeek</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+    body {
+      background: linear-gradient(145deg, #0b0e14 0%, #1a1f2a 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .app-container {
+      max-width: 1200px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 48px;
+      padding: 30px;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+      color: #f0f3f8;
+      letter-spacing: -0.5px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    h1 span {
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      padding: 4px 14px;
+      border-radius: 40px;
+      font-size: 16px;
+      font-weight: 500;
+      color: #fff;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 28px;
+    }
+    /* Левая панель — параметры */
+    .params-panel {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 24px;
+      padding: 24px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .params-panel label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #a0aec0;
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+    .params-panel input, .params-panel textarea, .params-panel select {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      color: #e2e8f0;
+      font-size: 15px;
+      transition: all 0.2s;
+      margin-bottom: 16px;
+    }
+    .params-panel input:focus, .params-panel textarea:focus, .params-panel select:focus {
+      outline: none;
+      border-color: #6c5ce7;
+      box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+    }
+    .params-panel textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    .params-panel .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .btn-send {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      border: none;
+      border-radius: 40px;
+      color: white;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+      margin-top: 8px;
+      box-shadow: 0 8px 24px rgba(108, 92, 231, 0.3);
+    }
+    .btn-send:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 32px rgba(108, 92, 231, 0.4);
+    }
+    .btn-send:active {
+      transform: scale(0.98);
+    }
+    .btn-reset {
+      width: 100%;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 40px;
+      color: #a0aec0;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      margin-top: 10px;
+    }
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+    }
+
+    /* Правая панель — чат и статистика */
+    .chat-panel {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 24px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chat-messages {
+      flex: 1;
+      max-height: 420px;
+      overflow-y: auto;
+      padding-right: 6px;
+      margin-bottom: 16px;
+    }
+    .chat-messages::-webkit-scrollbar {
+      width: 4px;
+    }
+    .chat-messages::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .chat-messages::-webkit-scrollbar-thumb {
+      background: #6c5ce7;
+      border-radius: 10px;
+    }
+    .message {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+      animation: fadeIn 0.3s ease;
+    }
+    .message.user {
+      flex-direction: row-reverse;
+    }
+    .message .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+    .message.user .avatar {
+      background: linear-gradient(135deg, #00b894, #00cec9);
+    }
+    .message.assistant .avatar {
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+    }
+    .message .bubble {
+      background: rgba(255,255,255,0.07);
+      padding: 12px 18px;
+      border-radius: 18px;
+      max-width: 80%;
+      color: #e2e8f0;
+      font-size: 15px;
+      line-height: 1.6;
+      word-break: break-word;
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+    .message.user .bubble {
+      background: rgba(108, 92, 231, 0.25);
+      border-bottom-right-radius: 4px;
+    }
+    .message.assistant .bubble {
+      background: rgba(255,255,255,0.05);
+      border-bottom-left-radius: 4px;
+    }
+    .stats {
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 16px;
+      padding: 16px 20px;
+      border: 1px solid rgba(255,255,255,0.04);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .stats .stat-item {
+      text-align: center;
+    }
+    .stats .stat-item .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #718096;
+    }
+    .stats .stat-item .value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f0f3f8;
+      margin-top: 2px;
+    }
+    .stats .stat-item .value small {
+      font-size: 12px;
+      font-weight: 400;
+      color: #a0aec0;
+    }
+
+    /* Баннер сжатия контекста */
+    .compression-banner {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, rgba(0, 184, 148, 0.18), rgba(0, 206, 201, 0.12));
+      border: 1px solid rgba(0, 206, 201, 0.35);
+      border-radius: 14px;
+      padding: 10px 16px;
+      margin-bottom: 14px;
+      color: #81ecec;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+    .compression-banner .icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .compression-banner .saved {
+      color: #f0f3f8;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .compression-banner.flash {
+      animation: bannerFlash 1s ease;
+    }
+    @keyframes bannerFlash {
+      0% { box-shadow: 0 0 0 0 rgba(0, 206, 201, 0.7); transform: scale(1); }
+      50% { box-shadow: 0 0 0 8px rgba(0, 206, 201, 0); transform: scale(1.02); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 206, 201, 0); transform: scale(1); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Адаптив */
+    @media (max-width: 800px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+      .app-container {
+        padding: 16px;
+      }
+    }
+
+    /* Стилизация select */
+    select option {
+      background: #1a1f2a;
+    }
+
+    /* placeholder */
+    ::-webkit-input-placeholder { color: #4a5568; }
+    ::-moz-placeholder { color: #4a5568; }
+    :-ms-input-placeholder { color: #4a5568; }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <h1>
+    🤖 AI Agent
+    <span>DeepSeek</span>
+  </h1>
+  <div class="main-grid">
+    <!-- Левая панель: настройки -->
+    <div class="params-panel">
+      <label for="message">Сообщение *</label>
+      <textarea id="message" placeholder="Введите ваш запрос..." rows="3"></textarea>
+
+      <label for="model">Модель *</label>
+      <select id="model">
+        <option value="deepseek-chat">deepseek-chat</option>
+        <option value="deepseek-reasoner">deepseek-reasoner</option>
+        <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+        <option value="deepseek-coder">deepseek-coder</option>
+      </select>
+
+      <div class="row2">
+        <div>
+          <label for="temperature">Температура</label>
+          <input type="number" id="temperature" value="1.0" step="0.1" min="0" max="2">
+        </div>
+        <div>
+          <label for="top_p">top_p</label>
+          <input type="number" id="top_p" value="1.0" step="0.05" min="0" max="1">
+        </div>
+        <div>
+          <label for="top_k">top_k</label>
+          <input type="number" id="top_k" value="0" step="1" min="0">
+        </div>
+        <div>
+          <label for="max_tokens">max_tokens</label>
+          <input type="number" id="max_tokens" value="4096" step="1" min="1" max="8192">
+        </div>
+      </div>
+
+      <label for="stop">Стоп-последовательность (через запятую)</label>
+      <input type="text" id="stop" placeholder="например: stop1, stop2">
+
+      <button class="btn-send" id="sendBtn">➤ Отправить</button>
+      <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
+    </div>
+
+    <!-- Правая панель: чат + статистика -->
+    <div class="chat-panel">
+      <div class="compression-banner" id="compressionBanner">
+        <span class="icon">📦</span>
+        <span id="compressionInfo">Контекст сжат</span>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <!-- Сообщения будут добавляться сюда -->
+      </div>
+      <div class="stats" id="statsPanel">
+        <div class="stat-item">
+          <div class="label">⏱ Время</div>
+          <div class="value" id="statDuration">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">📤 Запрос</div>
+          <div class="value" id="statRequestTokens">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">📚 История</div>
+          <div class="value" id="statHistoryTokens">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">🤖 Ответ</div>
+          <div class="value" id="statResponseTokens">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">🔢 Всего</div>
+          <div class="value" id="statTotalTokens">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">💲 Стоимость</div>
+          <div class="value" id="statCost">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="label">💾 Экономия</div>
+          <div class="value" id="statSavedTokens">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // === Конфигурация ===
+  const API_BASE = 'http://localhost:8000'; // Адрес бэкенда
+  const ENDPOINT = '/agent';
+
+  // === Элементы DOM ===
+  const messageEl = document.getElementById('message');
+  const modelEl = document.getElementById('model');
+  const temperatureEl = document.getElementById('temperature');
+  const topKEl = document.getElementById('top_k');
+  const topPEl = document.getElementById('top_p');
+  const stopEl = document.getElementById('stop');
+  const maxTokensEl = document.getElementById('max_tokens');
+  const sendBtn = document.getElementById('sendBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const chatMessages = document.getElementById('chatMessages');
+  const statDuration = document.getElementById('statDuration');
+  const statRequestTokens = document.getElementById('statRequestTokens');
+  const statHistoryTokens = document.getElementById('statHistoryTokens');
+  const statResponseTokens = document.getElementById('statResponseTokens');
+  const statTotalTokens = document.getElementById('statTotalTokens');
+  const statCost = document.getElementById('statCost');
+  const statSavedTokens = document.getElementById('statSavedTokens');
+  const compressionBanner = document.getElementById('compressionBanner');
+  const compressionInfo = document.getElementById('compressionInfo');
+
+  // === Состояние ===
+  let history = []; // массив {role, content}
+  // Идентификатор сессии: сохраняется в localStorage, чтобы контекст
+  // восстанавливался между перезагрузками страницы.
+  let sessionId = localStorage.getItem('agentSessionId') || null;
+
+  // === Функции отображения ===
+  function renderChat() {
+    chatMessages.innerHTML = '';
+    history.forEach(msg => {
+      const div = document.createElement('div');
+      div.className = `message ${msg.role}`;
+      div.innerHTML = `
+        <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
+        <div class="bubble">${escapeHtml(msg.content)}</div>
+      `;
+      chatMessages.appendChild(div);
+    });
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function updateStats(duration, usage, cost) {
+    statDuration.textContent = (duration != null) ? `${duration}s` : '—';
+    statRequestTokens.textContent = (usage && usage.request_tokens != null) ? `${usage.request_tokens}` : '—';
+    statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
+    statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
+    statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
+    statSavedTokens.textContent = (usage && usage.saved_tokens != null) ? `−${formatNumber(usage.saved_tokens)}` : '—';
+    statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
+  }
+
+  function formatNumber(n) {
+    return Number(n || 0).toLocaleString('ru-RU');
+  }
+
+  // Отображение статуса сжатия контекста (баннер + экономия токенов)
+  function updateCompression(compression) {
+    if (compression && compression.applied) {
+      compressionBanner.style.display = 'flex';
+      const totalSaved = compression.total_saved_tokens || compression.saved_tokens || 0;
+      compressionInfo.innerHTML =
+        `Контекст сжат: <b>${formatNumber(compression.summarized_messages || 0)}</b> сообщ. в резюме · ` +
+        `всего сэкономлено <span class="saved">${formatNumber(totalSaved)}</span> токенов`;
+      // Если сжатие произошло именно сейчас — подсвечиваем баннер.
+      if (compression.compressed_this_turn) {
+        compressionBanner.classList.remove('flash');
+        void compressionBanner.offsetWidth; // перезапуск анимации
+        compressionBanner.classList.add('flash');
+      }
+    } else {
+      compressionBanner.style.display = 'none';
+      compressionInfo.innerHTML = 'Контекст сжат';
+    }
+  }
+
+  // === Отправка запроса ===
+  async function sendRequest() {
+    const userMessage = messageEl.value.trim();
+    if (!userMessage) {
+      alert('Введите сообщение');
+      return;
+    }
+
+    const model = modelEl.value;
+    if (!model) {
+      alert('Выберите модель');
+      return;
+    }
+
+    // Добавляем сообщение пользователя в историю
+    history.push({ role: 'user', content: userMessage });
+    messageEl.value = '';
+    renderChat();
+
+    // Собираем параметры
+    const temperature = parseFloat(temperatureEl.value) || 1.0;
+    const topK = parseInt(topKEl.value) || 0;
+    const topP = parseFloat(topPEl.value) || 1.0;
+    const maxTokens = parseInt(maxTokensEl.value) || 4096;
+    const stopRaw = stopEl.value.trim();
+    let stop = null;
+    if (stopRaw) {
+      stop = stopRaw.split(',').map(s => s.trim()).filter(Boolean);
+      if (stop.length === 1) stop = stop[0];
+    }
+
+    const payload = {
+      messages: history,
+      model: model,
+      temperature: temperature,
+      top_k: topK,
+      top_p: topP,
+      max_tokens: maxTokens,
+    };
+    if (sessionId) payload.session_id = sessionId;
+    if (stop) payload.stop = stop;
+
+    try {
+      const response = await fetch(`${API_BASE}${ENDPOINT}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Ошибка сервера');
+      }
+
+      const data = await response.json();
+      // Запоминаем id сессии, чтобы продолжать этот же диалог
+      if (data.session_id) {
+        sessionId = data.session_id;
+        localStorage.setItem('agentSessionId', sessionId);
+      }
+      // Добавляем ответ ассистента в историю
+      history.push({ role: 'assistant', content: data.response });
+      renderChat();
+
+      // Обновляем статистику и статус сжатия контекста
+      updateStats(data.duration, data.usage, data.cost);
+      updateCompression(data.compression);
+
+      // Прокручиваем к последнему сообщению
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
+      // Удаляем последнее сообщение пользователя из истории (оно не было обработано)
+      history.pop();
+      renderChat();
+    }
+  }
+
+  // === Восстановление контекста ===
+  async function restoreSession(savedId) {
+    try {
+      const response = await fetch(`${API_BASE}/agent/${encodeURIComponent(savedId)}`);
+      if (!response.ok) return false;
+      const data = await response.json();
+      if (data.messages && data.messages.length) {
+        history = data.messages;
+        sessionId = data.session_id || savedId;
+        // Восстанавливаем и статус сжатия контекста (резюме хранится в БД).
+        updateCompression({
+          applied: !!data.summary,
+          summarized_messages: data.summarized_count || 0,
+          total_saved_tokens: data.total_saved_tokens || 0,
+          compressed_this_turn: false,
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  // === Новый диалог (сброс контекста) ===
+  async function resetChat() {
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/agent/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      } catch (err) { /* сервер недоступен — просто чистим локально */ }
+    }
+    sessionId = null;
+    localStorage.removeItem('agentSessionId');
+    history = [];
+    history.push({
+      role: 'assistant',
+      content: '👋 Привет! Я AI-агент на базе DeepSeek. Напиши что-нибудь!'
+    });
+    renderChat();
+    updateStats(null, null, null);
+    updateCompression(null);
+    messageEl.focus();
+  }
+
+  // === Обработчики ===
+  sendBtn.addEventListener('click', sendRequest);
+  resetBtn.addEventListener('click', resetChat);
+  messageEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendRequest();
+    }
+  });
+
+  // === Инициализация ===
+  (async function init() {
+    // Если сессия была — восстанавливаем историю с сервера,
+    // чтобы продолжить диалог так, как будто агент не выключался.
+    if (sessionId) {
+      const restored = await restoreSession(sessionId);
+      if (restored) {
+        renderChat();
+        updateStats(null, null, null);
+        return;
+      }
+      // Сессия не найдена (например, БД очищена) — начинаем заново.
+      sessionId = null;
+      localStorage.removeItem('agentSessionId');
+    }
+    // Добавим приветственное сообщение для нового диалога
+    history.push({
+      role: 'assistant',
+      content: '👋 Привет! Я AI-агент на базе DeepSeek. Напиши что-нибудь!'
+    });
+    renderChat();
+    updateStats(null, null, null);
+  })();
+</script>
+
+</body>
+</html>
