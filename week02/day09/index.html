@@ -320,6 +320,9 @@
       color: #f0f3f8;
       margin-top: 2px;
     }
+    .stats .stat-item .value.positive { color: #81ecec; }
+    .stats .stat-item .value.negative { color: #f56565; }
+    .stats .stat-item .value.zero { color: #a0aec0; }
     .stats .stat-item .value small {
       font-size: 12px;
       font-weight: 400;
@@ -451,14 +454,8 @@
           <div class="stats-group-title">Текущий запрос</div>
           <div class="stats-row">
             <div class="stat-item">
-              <div class="label">⏱ Время
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Время обработки запроса — от отправки до получения ответа модели.</span></i>
-              </div>
-              <div class="value" id="statDuration">—</div>
-            </div>
-            <div class="stat-item">
               <div class="label">📤 Запрос
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены нового сообщения, отправленного модели.</span></i>
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всего, что отправлено модели на вход (контекст: резюме + свежие сообщения).</span></i>
               </div>
               <div class="value" id="statRequestTokens">—</div>
             </div>
@@ -468,22 +465,28 @@
               </div>
               <div class="value" id="statResponseTokens">—</div>
             </div>
+            <div class="stat-item">
+              <div class="label">🔢 Всего
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сумма токенов за этот запрос: Запрос (вход) + Ответ (выход).</span></i>
+              </div>
+              <div class="value" id="statTotalTokens">—</div>
+            </div>
           </div>
         </div>
         <div class="stats-group">
           <div class="stats-group-title">Всего</div>
           <div class="stats-row">
             <div class="stat-item">
-              <div class="label">📚 История
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены контекста, отправленного модели: резюме + последние 10 сообщений. Без сжатия было бы больше.</span></i>
+              <div class="label">⏱ Время
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Время обработки запроса — от отправки до получения ответа модели.</span></i>
               </div>
-              <div class="value" id="statHistoryTokens">—</div>
+              <div class="value" id="statDuration">—</div>
             </div>
             <div class="stat-item">
-              <div class="label">🔢 Всего
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сумма токенов входа и выхода за этот запрос.</span></i>
+              <div class="label">📚 История
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всей истории диалога (полная переписка). Именно столько ушло бы в запрос без сжатия контекста.</span></i>
               </div>
-              <div class="value" id="statTotalTokens">—</div>
+              <div class="value" id="statHistoryTokens">—</div>
             </div>
             <div class="stat-item">
               <div class="label">💲 Стоимость
@@ -498,7 +501,7 @@
           <div class="stats-row single">
             <div class="stat-item">
               <div class="label">💾 Сэкономлено токенов
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Чистая экономия токенов благодаря сжатию истории: выигрыш на основном запросе минус затраты на саммаризацию.</span></i>
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сколько токенов в сумме сэкономлено за всю сессию благодаря сжатию истории (за вычетом затрат на саммаризацию).</span></i>
               </div>
               <div class="value" id="statSavedTokens">—</div>
             </div>
@@ -564,26 +567,25 @@
 
   function updateStats(duration, usage, cost) {
     statDuration.textContent = (duration != null) ? `${duration}s` : '—';
-    statRequestTokens.textContent = (usage && usage.request_tokens != null) ? `${usage.request_tokens}` : '—';
-    statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
+    statRequestTokens.textContent = (usage && usage.prompt_tokens != null) ? `${usage.prompt_tokens}` : '—';
     statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
+    statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
     statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
-    statSavedTokens.textContent = (usage && usage.saved_tokens != null)
-      ? formatSaved(usage.saved_tokens)
-      : '—';
+    // «Экономия» — накопленная за всю сессию (может быть отрицательной,
+    // пока затраты на саммаризацию не окупились).
+    const savedTotal = (usage && usage.total_saved_tokens != null) ? usage.total_saved_tokens : null;
+    if (savedTotal == null) {
+      statSavedTokens.textContent = '—';
+      statSavedTokens.className = 'value';
+    } else {
+      statSavedTokens.textContent = formatNumber(savedTotal);
+      statSavedTokens.className = 'value ' + (savedTotal > 0 ? 'positive' : savedTotal < 0 ? 'negative' : 'zero');
+    }
     statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
   }
 
   function formatNumber(n) {
     return Number(n || 0).toLocaleString('ru-RU');
-  }
-
-  // «Экономия» может быть отрицательной (затраты на саммаризацию в этот ход
-  // превысили выигрыш на основном запросе) — показываем знак корректно.
-  function formatSaved(n) {
-    n = Number(n || 0);
-    if (n === 0) return `0`;
-    return n > 0 ? `−${formatNumber(n)}` : `+${formatNumber(Math.abs(n))}`;
   }
 
   // Отображение статуса сжатия контекста (баннер + экономия токенов)
@@ -592,7 +594,7 @@
       compressionBanner.style.display = 'flex';
       const netSaved = compression.total_saved_tokens != null
         ? compression.total_saved_tokens
-        : (compression.saved_tokens || 0);
+        : 0;
       const summaryCost = compression.total_summary_tokens || 0;
       const netLabel = netSaved >= 0
         ? `чистый выигрыш <span class="saved">${formatNumber(netSaved)}</span> токенов`

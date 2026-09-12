@@ -366,7 +366,7 @@ async def agent_endpoint(request: AgentRequest):
         # 2. Компрессия перед вызовом: если свежих (не свёрнутых) сообщений
         #    стало больше KEEP_LAST_N — сворачиваем самые старые из них в резюме.
         compressed_this_turn = False
-        summary_tokens_this_turn = 0       # токены (вход+выход) на саммаризацию за ход
+        summary_tokens_before = 0          # токены саммаризации до вызова модели
         summary_cost_money_this_turn = 0.0  # деньги за саммаризацию за ход
         use_compression = True
         try:
@@ -374,7 +374,7 @@ async def agent_endpoint(request: AgentRequest):
                 conversation, summary, summarized_count, request.model
             )
             compressed_this_turn = folded > 0
-            summary_tokens_this_turn += s_inp + s_out
+            summary_tokens_before = s_inp + s_out
             summary_cost_money_this_turn += _tokens_money(s_inp, s_out)
         except Exception as e:
             # Если сжатие не удалось — отправляем полную историю, чтобы не терять контекст.
@@ -389,11 +389,12 @@ async def agent_endpoint(request: AgentRequest):
         # Токены: полная история (без сжатия) vs то, что реально отправлено.
         raw_context_tokens = estimate_messages_tokens(conversation)
         compressed_context_tokens = estimate_messages_tokens(request_messages)
-        gross_saved_tokens = max(0, raw_context_tokens - compressed_context_tokens) if use_compression else 0
-        # Чистая экономия за ход = выигрыш на основном запросе − затраты на саммаризацию.
-        saved_tokens = gross_saved_tokens - summary_tokens_this_turn
-        total_saved_tokens += saved_tokens
-        total_summary_tokens += summary_tokens_this_turn
+        # Накопленная экономия: выигрыш на основном запросе − затраты на саммаризацию.
+        total_summary_tokens += summary_tokens_before
+        if use_compression:
+            total_saved_tokens += (
+                max(0, raw_context_tokens - compressed_context_tokens) - summary_tokens_before
+            )
 
         # 3. Вызов модели
         if API_KEY == "sk-1234567890":
@@ -412,19 +413,20 @@ async def agent_endpoint(request: AgentRequest):
         usage = data.get("usage", {})
 
         # --- Подсчёт токенов ---
-        # 1) Токены текущего запроса — новое сообщение пользователя.
-        request_tokens = (
-            estimate_tokens(current_user_message.get("content", ""))
-            if current_user_message else 0
-        )
-        # 2) Токены ответа модели — эталон из usage API, иначе оценка по тексту.
+        # Ответ модели: эталон из usage API, иначе оценка по тексту.
         completion_tokens = usage.get("completion_tokens")
         if completion_tokens is None:
             completion_tokens = estimate_tokens(content)
-        # 3) Токены контекста, отправленного модели (резюме + последние N сообщений).
+        # Контекст, реально отправленный модели (резюме + свежие сообщения).
         prompt_tokens = usage.get("prompt_tokens")
         if prompt_tokens is None:
             prompt_tokens = compressed_context_tokens
+        # Вся история диалога: калибруем нашу приближённую оценку коэффициентом
+        # prompt_tokens / compressed_context_tokens (реальный счёт того же текста).
+        if compressed_context_tokens > 0:
+            history_tokens = round(raw_context_tokens * (prompt_tokens / compressed_context_tokens))
+        else:
+            history_tokens = raw_context_tokens
         total_tokens = prompt_tokens + completion_tokens
 
         # 4. Сохраняем ответ ассистента в полную историю сессии
@@ -440,9 +442,7 @@ async def agent_endpoint(request: AgentRequest):
                 )
                 compressed_this_turn = compressed_this_turn or folded_after > 0
                 s_cost = s_inp + s_out
-                summary_tokens_this_turn += s_cost
                 summary_cost_money_this_turn += _tokens_money(s_inp, s_out)
-                saved_tokens -= s_cost
                 total_saved_tokens -= s_cost
                 total_summary_tokens += s_cost
             except Exception as e:
@@ -464,33 +464,21 @@ async def agent_endpoint(request: AgentRequest):
         )
 
         return {
-            "id": agent_id,
             "session_id": agent_id,
             "response": content,
             "usage": {
-                "request_tokens": request_tokens,
-                "history_tokens": prompt_tokens,
-                "raw_history_tokens": raw_context_tokens,
-                "response_tokens": completion_tokens,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-                "saved_tokens": saved_tokens,              # чистая экономия за ход
-                "gross_saved_tokens": gross_saved_tokens,  # выигрыш на основном запросе
-                "summary_tokens": summary_tokens_this_turn, # затраты на саммаризацию за ход
+                "prompt_tokens": prompt_tokens,      # что отправлено модели
+                "response_tokens": completion_tokens, # ответ модели
+                "history_tokens": history_tokens,    # вся история диалога
+                "total_tokens": total_tokens,        # prompt + completion
+                "total_saved_tokens": total_saved_tokens,  # накопленная экономия
             },
             "compression": {
                 "applied": bool(summary) and use_compression,
                 "compressed_this_turn": compressed_this_turn,
-                "summarized_messages": summarized_count,       # сколько сообщений в резюме
-                "kept_messages": len(conversation) - summarized_count,  # свежих «как есть»
-                "total_messages": len(conversation),           # полная история в БД
-                "saved_tokens": saved_tokens,               # чистая экономия за ход
-                "gross_saved_tokens": gross_saved_tokens,
-                "summary_tokens": summary_tokens_this_turn,
-                "total_saved_tokens": total_saved_tokens,   # чистая экономия за сессию
-                "total_summary_tokens": total_summary_tokens, # затраты на саммаризацию за сессию
-                "summary": summary,
+                "summarized_messages": summarized_count,
+                "total_saved_tokens": total_saved_tokens,
+                "total_summary_tokens": total_summary_tokens,
             },
             "duration": round(duration, 3),
             "cost": round(cost, 6)
