@@ -33,12 +33,19 @@ app.add_middleware(
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 API_KEY = "sk-1234567890"  # Заглушка, если ключ такой – используем мок
 
+# Цены DeepSeek (пример, за 1M токенов) — используются для оценки стоимости
+# как основного запроса, так и вызовов саммаризации.
+INPUT_PRICE_PER_M = 0.14    # $0.14 за 1M входных токенов
+OUTPUT_PRICE_PER_M = 0.28   # $0.28 за 1M выходных токенов
+
 # ------------------------------------------------------------
 # Настройки компрессии контекста
 # ------------------------------------------------------------
-# Последние N сообщений храним «как есть», всё что старше — сворачиваем
-# в резюме (summary), которое подставляется в запрос вместо полной истории.
-KEEP_LAST_N = 5
+# KEEP_LAST_N — сколько самых СВЕЖИХ сообщений держим «как есть».
+# Как только несуммаризированных сообщений становится больше KEEP_LAST_N,
+# самые старые KEEP_LAST_N из них сворачиваются в резюме (summary),
+# которое подставляется в запрос вместо этой части истории.
+KEEP_LAST_N = 10
 SUMMARY_MAX_TOKENS = 512   # лимит токенов для генерации резюме
 SUMMARY_TEMPERATURE = 0.2  # низкая температура — более предсказуемое резюме
 
@@ -149,8 +156,7 @@ def mock_merge_summary(existing, messages):
 
 
 # Универсальный вызов DeepSeek (без привязки к AgentRequest)
-def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096,
-                      top_k=0, stop=None):
+def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
@@ -198,79 +204,130 @@ def format_messages_for_summary(messages) -> str:
     return "\n".join(lines)
 
 
-def summarize_batch(messages, model) -> str:
-    """Сжимает список сообщений в одно резюме (без учёта предыдущего)."""
+def _summary_tokens(input_text, summary_text, usage=None):
+    """Считает токены вызова саммаризации отдельно: (вход, выход).
+
+    Если API вернул usage — берём его эталонные значения, иначе оцениваем
+    по тексту промпта и тексту резюме.
+    """
+    usage = usage or {}
+    inp = usage.get("prompt_tokens")
+    out = usage.get("completion_tokens")
+    if inp is None:
+        inp = estimate_tokens(input_text)
+    if out is None:
+        out = estimate_tokens(summary_text)
+    return inp, out
+
+
+def _tokens_money(input_tokens, output_tokens) -> float:
+    """Стоимость вызова в долларах по ценам DeepSeek."""
+    return (input_tokens / 1_000_000) * INPUT_PRICE_PER_M + (output_tokens / 1_000_000) * OUTPUT_PRICE_PER_M
+
+
+def summarize_batch(messages, model):
+    """Сжимает список сообщений в одно резюме (без учёта предыдущего).
+
+    Возвращает (summary, input_tokens, output_tokens) — токены, потраченные
+    на сам вызов саммаризации (раздельно вход и выход).
+    """
     if API_KEY == "sk-1234567890":
-        return mock_summarize(messages)
+        summary = mock_summarize(messages)
+        return summary, estimate_messages_tokens(messages), estimate_tokens(summary)
     text = format_messages_for_summary(messages)
+    prompt_text = SUMMARY_PROMPT + "\n\n" + text
     msgs = [
         {"role": "system", "content": "Ты — ассистент, который кратко пересказывает историю диалога."},
-        {"role": "user", "content": SUMMARY_PROMPT + "\n\n" + text},
+        {"role": "user", "content": prompt_text},
     ]
     data = call_deepseek_raw(
         msgs, model=model, temperature=SUMMARY_TEMPERATURE, max_tokens=SUMMARY_MAX_TOKENS
     )
-    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    summary = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    inp, out = _summary_tokens(prompt_text, summary, data.get("usage"))
+    return summary, inp, out
 
 
-def merge_summary(existing_summary, messages, model) -> str:
-    """Объединяет старое резюме и новый фрагмент диалога в одно резюме."""
+def merge_summary(existing_summary, messages, model):
+    """Объединяет старое резюме и новый фрагмент диалога в одно резюме.
+
+    Возвращает (summary, input_tokens, output_tokens).
+    """
     if API_KEY == "sk-1234567890":
-        return mock_merge_summary(existing_summary, messages)
+        summary = mock_merge_summary(existing_summary, messages)
+        inp = estimate_tokens(existing_summary) + estimate_messages_tokens(messages)
+        return summary, inp, estimate_tokens(summary)
     text = format_messages_for_summary(messages)
+    user_content = (
+        MERGE_PROMPT
+        + "\n\nПредыдущее резюме:\n" + existing_summary
+        + "\n\nНовый фрагмент:\n" + text
+    )
     msgs = [
         {"role": "system", "content": "Ты — ассистент, который обновляет резюме диалога."},
-        {
-            "role": "user",
-            "content": (
-                MERGE_PROMPT
-                + "\n\nПредыдущее резюме:\n" + existing_summary
-                + "\n\nНовый фрагмент:\n" + text
-            ),
-        },
+        {"role": "user", "content": user_content},
     ]
     data = call_deepseek_raw(
         msgs, model=model, temperature=SUMMARY_TEMPERATURE, max_tokens=SUMMARY_MAX_TOKENS
     )
-    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    summary = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    inp, out = _summary_tokens(user_content, summary, data.get("usage"))
+    return summary, inp, out
 
 
 def ensure_compressed(conversation, summary, summarized_count, model):
-    """Сворачивает в резюме всё, что вышло за окно последних KEEP_LAST_N сообщений.
+    """Поддерживает инвариант: сырых (не свернутых) сообщений не больше KEEP_LAST_N.
 
-    Возвращает (summary, summarized_count, folded_count), где folded_count —
-    сколько сообщений было свёрнуто именно в этом вызове (0, если нечего).
+    Сырая часть диалога — это самые свежие сообщения conversation[summarized_count:].
+    Как только их становится больше KEEP_LAST_N, самые старые KEEP_LAST_N из них
+    сворачиваются в резюме (одним батчем). Цикл нужен на случай, если за один
+    запрос пришло сразу много сообщений.
+
+    Возвращает (summary, summarized_count, folded_count, input_tokens, output_tokens):
+    - folded_count — сколько сообщений свёрнуто в этом вызове (0, если нечего);
+    - input_tokens/output_tokens — токены, потраченные на саммаризацию (0, если нечего).
     """
-    if len(conversation) <= KEEP_LAST_N:
-        return summary, summarized_count, 0
+    folded = 0
+    inp_total = 0
+    out_total = 0
 
-    overflow = conversation[:-KEEP_LAST_N]
-    folded = len(overflow) - summarized_count
-    if folded <= 0:
-        return summary, summarized_count, 0
+    while len(conversation) - summarized_count > KEEP_LAST_N:
+        raw = conversation[summarized_count:]
+        to_compress = raw[:KEEP_LAST_N]  # самые старые из сырой части
 
-    new_messages = overflow[summarized_count:]
-    if summary:
-        summary = merge_summary(summary, new_messages, model)
-    else:
-        summary = summarize_batch(new_messages, model)
+        if summary:
+            summary, inp, out = merge_summary(summary, to_compress, model)
+        else:
+            summary, inp, out = summarize_batch(to_compress, model)
 
-    logger.info(
-        "Контекст сжат: свёрнуто сообщений — %d (всего в резюме — %d)",
-        folded, len(overflow),
-    )
-    return summary, len(overflow), folded
+        summarized_count += len(to_compress)
+        folded += len(to_compress)
+        inp_total += inp
+        out_total += out
+
+    if folded:
+        logger.info(
+            "Контекст сжат: свёрнуто сообщений — %d (всего в резюме — %d), "
+            "затраты на саммаризацию — %d токенов",
+            folded, summarized_count, inp_total + out_total,
+        )
+    return summary, summarized_count, folded, inp_total, out_total
 
 
-def build_request_messages(conversation, summary):
-    """Формирует контекст для модели: резюме + последние N сообщений «как есть»."""
+def build_request_messages(conversation, summary, summarized_count):
+    """Формирует контекст для модели: резюме + свежие (ещё не свёрнутые) сообщения.
+
+    В резюме свёрнуты самые старые summarized_count сообщений, поэтому «как есть»
+    отправляются только сообщения conversation[summarized_count:] (их не больше
+    KEEP_LAST_N).
+    """
     messages = []
     if summary:
         messages.append({
             "role": "system",
             "content": "Краткое резюме предыдущего диалога (вместо полной истории):\n" + summary,
         })
-    messages.extend(conversation[-KEEP_LAST_N:])
+    messages.extend(conversation[summarized_count:])
     return messages
 
 
@@ -288,7 +345,8 @@ async def agent_endpoint(request: AgentRequest):
         summary_state = storage.load_summary(agent_id) or {}
         summary = summary_state.get("summary")
         summarized_count = summary_state.get("summarized_count", 0)
-        total_saved_tokens = summary_state.get("total_saved_tokens", 0)
+        total_saved_tokens = summary_state.get("total_saved_tokens", 0)      # чистая экономия
+        total_summary_tokens = summary_state.get("total_summary_tokens", 0)  # затраты на саммаризацию
 
         # Текущее сообщение пользователя, пришедшее в этом запросе
         current_user_message = next(
@@ -305,30 +363,37 @@ async def agent_endpoint(request: AgentRequest):
             if current_user_message and (not conversation or conversation[-1] != current_user_message):
                 conversation.append(current_user_message)
 
-        # 2. Компрессия перед вызовом: сворачиваем всё, что вышло за окно
-        #    последних KEEP_LAST_N сообщений, в резюме.
+        # 2. Компрессия перед вызовом: если свежих (не свёрнутых) сообщений
+        #    стало больше KEEP_LAST_N — сворачиваем самые старые из них в резюме.
         compressed_this_turn = False
+        summary_tokens_this_turn = 0       # токены (вход+выход) на саммаризацию за ход
+        summary_cost_money_this_turn = 0.0  # деньги за саммаризацию за ход
         use_compression = True
         try:
-            summary, summarized_count, folded = ensure_compressed(
+            summary, summarized_count, folded, s_inp, s_out = ensure_compressed(
                 conversation, summary, summarized_count, request.model
             )
             compressed_this_turn = folded > 0
+            summary_tokens_this_turn += s_inp + s_out
+            summary_cost_money_this_turn += _tokens_money(s_inp, s_out)
         except Exception as e:
             # Если сжатие не удалось — отправляем полную историю, чтобы не терять контекст.
             logger.warning("Ошибка сжатия контекста, отправляю полную историю: %s", e)
             use_compression = False
 
         if use_compression:
-            request_messages = build_request_messages(conversation, summary)
+            request_messages = build_request_messages(conversation, summary, summarized_count)
         else:
             request_messages = list(conversation)
 
         # Токены: полная история (без сжатия) vs то, что реально отправлено.
         raw_context_tokens = estimate_messages_tokens(conversation)
         compressed_context_tokens = estimate_messages_tokens(request_messages)
-        saved_tokens = max(0, raw_context_tokens - compressed_context_tokens) if use_compression else 0
+        gross_saved_tokens = max(0, raw_context_tokens - compressed_context_tokens) if use_compression else 0
+        # Чистая экономия за ход = выигрыш на основном запросе − затраты на саммаризацию.
+        saved_tokens = gross_saved_tokens - summary_tokens_this_turn
         total_saved_tokens += saved_tokens
+        total_summary_tokens += summary_tokens_this_turn
 
         # 3. Вызов модели
         if API_KEY == "sk-1234567890":
@@ -338,6 +403,8 @@ async def agent_endpoint(request: AgentRequest):
             )
         else:
             data = call_deepseek(request_messages, request)
+
+        duration = time.time() - start_time
 
         # Извлечение ответа
         choice = data.get("choices", [{}])[0]
@@ -365,27 +432,36 @@ async def agent_endpoint(request: AgentRequest):
 
         # 5. Компрессия после ответа: ответ ассистента мог вытеснить ещё одно
         #    сообщение за окно последних N — досворачиваем его в резюме.
+        #    NB: затраты этого второго вызова тоже учитываем в экономии.
         if use_compression:
             try:
-                summary, summarized_count, folded_after = ensure_compressed(
+                summary, summarized_count, folded_after, s_inp, s_out = ensure_compressed(
                     conversation, summary, summarized_count, request.model
                 )
                 compressed_this_turn = compressed_this_turn or folded_after > 0
+                s_cost = s_inp + s_out
+                summary_tokens_this_turn += s_cost
+                summary_cost_money_this_turn += _tokens_money(s_inp, s_out)
+                saved_tokens -= s_cost
+                total_saved_tokens -= s_cost
+                total_summary_tokens += s_cost
             except Exception as e:
                 logger.warning("Ошибка сжатия после ответа: %s", e)
 
         # 6. Сохраняем полную историю и резюме (отдельно) в БД.
         storage.save(agent_id, conversation)
         if summary:
-            storage.save_summary(agent_id, summary, summarized_count, total_saved_tokens)
+            storage.save_summary(
+                agent_id, summary, summarized_count,
+                total_saved_tokens, total_summary_tokens,
+            )
 
-        # Расчёт стоимости (пример для deepseek-chat, цены за 1M токенов)
-        # Цены могут меняться, для демонстрации используем приблизительные
-        input_price_per_m = 0.14   # $0.14 за 1M input токенов
-        output_price_per_m = 0.28  # $0.28 за 1M output токенов
-        cost = (prompt_tokens / 1_000_000) * input_price_per_m + (completion_tokens / 1_000_000) * output_price_per_m
-
-        duration = time.time() - start_time
+        # Расчёт стоимости: основной запрос + вызовы саммаризации.
+        cost = (
+            (prompt_tokens / 1_000_000) * INPUT_PRICE_PER_M
+            + (completion_tokens / 1_000_000) * OUTPUT_PRICE_PER_M
+            + summary_cost_money_this_turn
+        )
 
         return {
             "id": agent_id,
@@ -399,16 +475,21 @@ async def agent_endpoint(request: AgentRequest):
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
-                "saved_tokens": saved_tokens,
+                "saved_tokens": saved_tokens,              # чистая экономия за ход
+                "gross_saved_tokens": gross_saved_tokens,  # выигрыш на основном запросе
+                "summary_tokens": summary_tokens_this_turn, # затраты на саммаризацию за ход
             },
             "compression": {
                 "applied": bool(summary) and use_compression,
                 "compressed_this_turn": compressed_this_turn,
-                "summarized_messages": summarized_count,
-                "kept_messages": min(KEEP_LAST_N, len(conversation)),
-                "total_messages": len(conversation),
-                "saved_tokens": saved_tokens,
-                "total_saved_tokens": total_saved_tokens,
+                "summarized_messages": summarized_count,       # сколько сообщений в резюме
+                "kept_messages": len(conversation) - summarized_count,  # свежих «как есть»
+                "total_messages": len(conversation),           # полная история в БД
+                "saved_tokens": saved_tokens,               # чистая экономия за ход
+                "gross_saved_tokens": gross_saved_tokens,
+                "summary_tokens": summary_tokens_this_turn,
+                "total_saved_tokens": total_saved_tokens,   # чистая экономия за сессию
+                "total_summary_tokens": total_summary_tokens, # затраты на саммаризацию за сессию
                 "summary": summary,
             },
             "duration": round(duration, 3),
@@ -432,6 +513,7 @@ async def get_agent_history(session_id: str):
         "summary": summary_state["summary"] if summary_state else None,
         "summarized_count": summary_state["summarized_count"] if summary_state else 0,
         "total_saved_tokens": summary_state["total_saved_tokens"] if summary_state else 0,
+        "total_summary_tokens": summary_state["total_summary_tokens"] if summary_state else 0,
     }
 
 

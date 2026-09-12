@@ -41,13 +41,76 @@
       align-items: center;
       gap: 12px;
     }
-    h1 span {
+    h1 .badge {
       background: linear-gradient(135deg, #6c5ce7, #a29bfe);
       padding: 4px 14px;
       border-radius: 40px;
       font-size: 16px;
       font-weight: 500;
       color: #fff;
+    }
+    /* Иконка «i» с подсказкой (у каждого показателя статистики) */
+    .info-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #718096;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 700;
+      cursor: help;
+      margin-left: 3px;
+      flex-shrink: 0;
+      vertical-align: middle;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .info-icon:hover,
+    .info-icon:focus {
+      color: #fff;
+      background: rgba(108, 92, 231, 0.5);
+      border-color: #6c5ce7;
+      outline: none;
+    }
+    .info-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      max-width: 70vw;
+      background: #1a1f2a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: #cbd5e0;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.5;
+      letter-spacing: 0;
+      white-space: normal;
+      text-align: left;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+      display: none;
+      z-index: 30;
+    }
+    .info-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #1a1f2a;
+    }
+    .info-icon:hover .info-tooltip,
+    .info-icon:focus .info-tooltip {
+      display: block;
     }
     .main-grid {
       display: grid;
@@ -211,10 +274,32 @@
       border-radius: 16px;
       padding: 16px 20px;
       border: 1px solid rgba(255,255,255,0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 4px;
+    }
+    .stats-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .stats-group-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6c5ce7;
+      font-weight: 600;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .stats-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 12px;
-      margin-top: 4px;
+    }
+    .stats-row.single {
+      grid-template-columns: 1fr;
     }
     .stats .stat-item {
       text-align: center;
@@ -224,6 +309,10 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #718096;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
     }
     .stats .stat-item .value {
       font-size: 18px;
@@ -260,6 +349,11 @@
       color: #f0f3f8;
       font-weight: 600;
       white-space: nowrap;
+    }
+    .compression-banner .cost {
+      color: #718096;
+      font-size: 12px;
+      font-weight: 400;
     }
     .compression-banner.flash {
       animation: bannerFlash 1s ease;
@@ -301,7 +395,7 @@
 <div class="app-container">
   <h1>
     🤖 AI Agent
-    <span>DeepSeek</span>
+    <span class="badge">DeepSeek</span>
   </h1>
   <div class="main-grid">
     <!-- Левая панель: настройки -->
@@ -353,33 +447,62 @@
         <!-- Сообщения будут добавляться сюда -->
       </div>
       <div class="stats" id="statsPanel">
-        <div class="stat-item">
-          <div class="label">⏱ Время</div>
-          <div class="value" id="statDuration">—</div>
+        <div class="stats-group">
+          <div class="stats-group-title">Текущий запрос</div>
+          <div class="stats-row">
+            <div class="stat-item">
+              <div class="label">⏱ Время
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Время обработки запроса — от отправки до получения ответа модели.</span></i>
+              </div>
+              <div class="value" id="statDuration">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="label">📤 Запрос
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены нового сообщения, отправленного модели.</span></i>
+              </div>
+              <div class="value" id="statRequestTokens">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="label">🤖 Ответ
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены, которые модель сгенерировала в ответе.</span></i>
+              </div>
+              <div class="value" id="statResponseTokens">—</div>
+            </div>
+          </div>
         </div>
-        <div class="stat-item">
-          <div class="label">📤 Запрос</div>
-          <div class="value" id="statRequestTokens">—</div>
+        <div class="stats-group">
+          <div class="stats-group-title">Всего</div>
+          <div class="stats-row">
+            <div class="stat-item">
+              <div class="label">📚 История
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены контекста, отправленного модели: резюме + последние 10 сообщений. Без сжатия было бы больше.</span></i>
+              </div>
+              <div class="value" id="statHistoryTokens">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="label">🔢 Всего
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сумма токенов входа и выхода за этот запрос.</span></i>
+              </div>
+              <div class="value" id="statTotalTokens">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="label">💲 Стоимость
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Оценка стоимости запроса по ценам DeepSeek, включая вызовы саммаризации.</span></i>
+              </div>
+              <div class="value" id="statCost">—</div>
+            </div>
+          </div>
         </div>
-        <div class="stat-item">
-          <div class="label">📚 История</div>
-          <div class="value" id="statHistoryTokens">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="label">🤖 Ответ</div>
-          <div class="value" id="statResponseTokens">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="label">🔢 Всего</div>
-          <div class="value" id="statTotalTokens">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="label">💲 Стоимость</div>
-          <div class="value" id="statCost">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="label">💾 Экономия</div>
-          <div class="value" id="statSavedTokens">—</div>
+        <div class="stats-group">
+          <div class="stats-group-title">Экономия</div>
+          <div class="stats-row single">
+            <div class="stat-item">
+              <div class="label">💾 Сэкономлено токенов
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Чистая экономия токенов благодаря сжатию истории: выигрыш на основном запросе минус затраты на саммаризацию.</span></i>
+              </div>
+              <div class="value" id="statSavedTokens">—</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -445,7 +568,9 @@
     statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
     statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
     statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
-    statSavedTokens.textContent = (usage && usage.saved_tokens != null) ? `−${formatNumber(usage.saved_tokens)}` : '—';
+    statSavedTokens.textContent = (usage && usage.saved_tokens != null)
+      ? formatSaved(usage.saved_tokens)
+      : '—';
     statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
   }
 
@@ -453,14 +578,29 @@
     return Number(n || 0).toLocaleString('ru-RU');
   }
 
+  // «Экономия» может быть отрицательной (затраты на саммаризацию в этот ход
+  // превысили выигрыш на основном запросе) — показываем знак корректно.
+  function formatSaved(n) {
+    n = Number(n || 0);
+    if (n === 0) return `0`;
+    return n > 0 ? `−${formatNumber(n)}` : `+${formatNumber(Math.abs(n))}`;
+  }
+
   // Отображение статуса сжатия контекста (баннер + экономия токенов)
   function updateCompression(compression) {
     if (compression && compression.applied) {
       compressionBanner.style.display = 'flex';
-      const totalSaved = compression.total_saved_tokens || compression.saved_tokens || 0;
+      const netSaved = compression.total_saved_tokens != null
+        ? compression.total_saved_tokens
+        : (compression.saved_tokens || 0);
+      const summaryCost = compression.total_summary_tokens || 0;
+      const netLabel = netSaved >= 0
+        ? `чистый выигрыш <span class="saved">${formatNumber(netSaved)}</span> токенов`
+        : `пока в минусе <span class="saved">${formatNumber(Math.abs(netSaved))}</span> токенов`;
       compressionInfo.innerHTML =
         `Контекст сжат: <b>${formatNumber(compression.summarized_messages || 0)}</b> сообщ. в резюме · ` +
-        `всего сэкономлено <span class="saved">${formatNumber(totalSaved)}</span> токенов`;
+        `${netLabel} ` +
+        `<span class="cost">(минус ${formatNumber(summaryCost)} на саммаризацию)</span>`;
       // Если сжатие произошло именно сейчас — подсвечиваем баннер.
       if (compression.compressed_this_turn) {
         compressionBanner.classList.remove('flash');
@@ -565,6 +705,7 @@
           applied: !!data.summary,
           summarized_messages: data.summarized_count || 0,
           total_saved_tokens: data.total_saved_tokens || 0,
+          total_summary_tokens: data.total_summary_tokens || 0,
           compressed_this_turn: false,
         });
         return true;

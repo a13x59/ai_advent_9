@@ -61,15 +61,27 @@ class HistoryStorage:
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS session_summaries (
-                        session_id         TEXT PRIMARY KEY,
-                        summary            TEXT NOT NULL,
-                        summarized_count   INTEGER NOT NULL DEFAULT 0,
-                        total_saved_tokens INTEGER NOT NULL DEFAULT 0,
-                        created_at         TEXT NOT NULL,
-                        updated_at         TEXT NOT NULL
+                        session_id          TEXT PRIMARY KEY,
+                        summary             TEXT NOT NULL,
+                        summarized_count    INTEGER NOT NULL DEFAULT 0,
+                        total_saved_tokens  INTEGER NOT NULL DEFAULT 0,
+                        total_summary_tokens INTEGER NOT NULL DEFAULT 0,
+                        created_at          TEXT NOT NULL,
+                        updated_at          TEXT NOT NULL
                     )
                     """
                 )
+                # Миграция для уже существующих БД: добавляем колонку учёта
+                # затрат на саммаризацию, если таблица была создана раньше.
+                cols = [
+                    r[1]
+                    for r in conn.execute("PRAGMA table_info(session_summaries)").fetchall()
+                ]
+                if "total_summary_tokens" not in cols:
+                    conn.execute(
+                        "ALTER TABLE session_summaries "
+                        "ADD COLUMN total_summary_tokens INTEGER NOT NULL DEFAULT 0"
+                    )
                 conn.commit()
 
     def load_all_history(self) -> int:
@@ -84,7 +96,8 @@ class HistoryStorage:
                     "SELECT session_id, messages FROM conversations"
                 ).fetchall()
                 summary_rows = conn.execute(
-                    "SELECT session_id, summary, summarized_count, total_saved_tokens "
+                    "SELECT session_id, summary, summarized_count, "
+                    "total_saved_tokens, total_summary_tokens "
                     "FROM session_summaries"
                 ).fetchall()
             self._cache = {
@@ -95,6 +108,7 @@ class HistoryStorage:
                     "summary": row["summary"],
                     "summarized_count": row["summarized_count"],
                     "total_saved_tokens": row["total_saved_tokens"],
+                    "total_summary_tokens": row["total_summary_tokens"],
                 }
                 for row in summary_rows
             }
@@ -136,7 +150,8 @@ class HistoryStorage:
     # ------------------------------------------------------------
     def load_summary(self, session_id: str) -> Optional[dict]:
         """Возвращает резюме сессии:
-        {"summary", "summarized_count", "total_saved_tokens"} или None.
+        {"summary", "summarized_count", "total_saved_tokens", "total_summary_tokens"}
+        или None.
         """
         with self._lock:
             state = self._summary_cache.get(session_id)
@@ -148,6 +163,7 @@ class HistoryStorage:
         summary: str,
         summarized_count: int,
         total_saved_tokens: int,
+        total_summary_tokens: int = 0,
     ) -> None:
         """Сохраняет (создаёт или обновляет) резюме сжатой части диалога."""
         now = datetime.now(timezone.utc).isoformat()
@@ -156,20 +172,24 @@ class HistoryStorage:
                 "summary": summary,
                 "summarized_count": summarized_count,
                 "total_saved_tokens": total_saved_tokens,
+                "total_summary_tokens": total_summary_tokens,
             }
             with closing(self._connect()) as conn:
                 conn.execute(
                     """
                     INSERT INTO session_summaries
-                        (session_id, summary, summarized_count, total_saved_tokens, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (session_id, summary, summarized_count, total_saved_tokens,
+                         total_summary_tokens, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
-                        summary            = excluded.summary,
-                        summarized_count   = excluded.summarized_count,
-                        total_saved_tokens = excluded.total_saved_tokens,
-                        updated_at         = excluded.updated_at
+                        summary              = excluded.summary,
+                        summarized_count     = excluded.summarized_count,
+                        total_saved_tokens   = excluded.total_saved_tokens,
+                        total_summary_tokens = excluded.total_summary_tokens,
+                        updated_at           = excluded.updated_at
                     """,
-                    (session_id, summary, summarized_count, total_saved_tokens, now, now),
+                    (session_id, summary, summarized_count, total_saved_tokens,
+                     total_summary_tokens, now, now),
                 )
                 conn.commit()
 
