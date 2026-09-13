@@ -329,42 +329,101 @@
       color: #a0aec0;
     }
 
-    /* Баннер сжатия контекста */
-    .compression-banner {
+    /* Сводка по контексту (зависит от выбранной стратегии) */
+    .context-summary {
       display: none;
-      align-items: center;
-      gap: 10px;
-      background: linear-gradient(135deg, rgba(0, 184, 148, 0.18), rgba(0, 206, 201, 0.12));
-      border: 1px solid rgba(0, 206, 201, 0.35);
+      background: linear-gradient(135deg, rgba(108, 92, 231, 0.18), rgba(162, 155, 254, 0.10));
+      border: 1px solid rgba(162, 155, 254, 0.35);
       border-radius: 14px;
-      padding: 10px 16px;
+      padding: 12px 16px;
       margin-bottom: 14px;
-      color: #81ecec;
+      color: #cbd5e0;
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 400;
       line-height: 1.5;
     }
-    .compression-banner .icon {
-      font-size: 18px;
+    .context-summary .summary-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: #e9e5ff;
+      margin-bottom: 6px;
+    }
+    .context-summary .summary-head .icon {
+      font-size: 16px;
       flex-shrink: 0;
     }
-    .compression-banner .saved {
-      color: #f0f3f8;
-      font-weight: 600;
-      white-space: nowrap;
+    .context-summary .facts-list {
+      margin: 6px 0 2px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 10px;
+      list-style: none;
+      max-height: 140px;
+      overflow-y: auto;
     }
-    .compression-banner .cost {
+    .context-summary .facts-list li {
+      padding: 2px 0;
+      font-size: 12px;
+      color: #cbd5e0;
+    }
+    .context-summary .facts-list li b {
+      color: #a29bfe;
+      font-weight: 600;
+    }
+    .context-summary .meta {
       color: #718096;
       font-size: 12px;
-      font-weight: 400;
+      margin-top: 4px;
     }
-    .compression-banner.flash {
-      animation: bannerFlash 1s ease;
+    .context-summary .meta b {
+      color: #e2e8f0;
+      font-weight: 600;
     }
-    @keyframes bannerFlash {
-      0% { box-shadow: 0 0 0 0 rgba(0, 206, 201, 0.7); transform: scale(1); }
-      50% { box-shadow: 0 0 0 8px rgba(0, 206, 201, 0); transform: scale(1.02); }
-      100% { box-shadow: 0 0 0 0 rgba(0, 206, 201, 0); transform: scale(1); }
+    .context-summary.flash {
+      animation: contextFlash 1s ease;
+    }
+    @keyframes contextFlash {
+      0% { box-shadow: 0 0 0 0 rgba(162, 155, 254, 0.7); transform: scale(1); }
+      50% { box-shadow: 0 0 0 8px rgba(162, 155, 254, 0); transform: scale(1.02); }
+      100% { box-shadow: 0 0 0 0 rgba(162, 155, 254, 0); transform: scale(1); }
+    }
+
+    /* Управление ветками (стратегия branching) */
+    .branch-controls {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .branch-controls.visible {
+      display: flex;
+    }
+    .branch-controls .branch-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .branch-controls .branch-row select {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    .btn-branch {
+      flex-shrink: 0;
+      padding: 10px 14px;
+      background: rgba(108, 92, 231, 0.25);
+      border: 1px solid rgba(162, 155, 254, 0.4);
+      border-radius: 12px;
+      color: #d6d2ff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .btn-branch:hover {
+      background: rgba(108, 92, 231, 0.4);
+      color: #fff;
     }
 
     @keyframes fadeIn {
@@ -414,6 +473,16 @@
         <option value="deepseek-coder">deepseek-coder</option>
       </select>
 
+      <label for="strategy">Стратегия контекста</label>
+      <select id="strategy">
+        <option value="sliding_window">Sliding Window — окно последних N</option>
+        <option value="sticky_facts">Sticky Facts — факты + окно N</option>
+        <option value="branching">Branching — ветки диалога</option>
+      </select>
+
+      <label for="window_size">Размер окна N (для Sliding Window / Sticky Facts)</label>
+      <input type="number" id="window_size" value="10" step="1" min="1">
+
       <div class="row2">
         <div>
           <label for="temperature">Температура</label>
@@ -436,16 +505,22 @@
       <label for="stop">Стоп-последовательность (через запятую)</label>
       <input type="text" id="stop" placeholder="например: stop1, stop2">
 
+      <div class="branch-controls" id="branchControls">
+        <div class="branch-row">
+          <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
+        </div>
+        <div class="branch-row">
+          <select id="branchSelect" title="Активная ветка"></select>
+        </div>
+      </div>
+
       <button class="btn-send" id="sendBtn">➤ Отправить</button>
       <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
     </div>
 
     <!-- Правая панель: чат + статистика -->
     <div class="chat-panel">
-      <div class="compression-banner" id="compressionBanner">
-        <span class="icon">📦</span>
-        <span id="compressionInfo">Контекст сжат</span>
-      </div>
+      <div class="context-summary" id="contextSummary"></div>
       <div class="chat-messages" id="chatMessages">
         <!-- Сообщения будут добавляться сюда -->
       </div>
@@ -455,7 +530,7 @@
           <div class="stats-row">
             <div class="stat-item">
               <div class="label">📤 Запрос
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всего, что отправлено модели на вход (контекст: резюме + свежие сообщения).</span></i>
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всего, что отправлено модели на вход (зависит от стратегии: окно / факты+окно / ветка).</span></i>
               </div>
               <div class="value" id="statRequestTokens">—</div>
             </div>
@@ -484,26 +559,15 @@
             </div>
             <div class="stat-item">
               <div class="label">📚 История
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всей истории диалога (полная переписка). Именно столько ушло бы в запрос без сжатия контекста.</span></i>
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всей истории диалога (полная переписка активной ветки, всегда хранится в БД).</span></i>
               </div>
               <div class="value" id="statHistoryTokens">—</div>
             </div>
             <div class="stat-item">
               <div class="label">💲 Стоимость
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Оценка стоимости запроса по ценам DeepSeek, включая вызовы саммаризации.</span></i>
+                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Оценка стоимости запроса по ценам DeepSeek, включая вызовы извлечения фактов.</span></i>
               </div>
               <div class="value" id="statCost">—</div>
-            </div>
-          </div>
-        </div>
-        <div class="stats-group">
-          <div class="stats-group-title">Экономия</div>
-          <div class="stats-row single">
-            <div class="stat-item">
-              <div class="label">💾 Сэкономлено токенов
-                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сколько токенов в сумме сэкономлено за всю сессию благодаря сжатию истории (за вычетом затрат на саммаризацию).</span></i>
-              </div>
-              <div class="value" id="statSavedTokens">—</div>
             </div>
           </div>
         </div>
@@ -534,12 +598,15 @@
   const statResponseTokens = document.getElementById('statResponseTokens');
   const statTotalTokens = document.getElementById('statTotalTokens');
   const statCost = document.getElementById('statCost');
-  const statSavedTokens = document.getElementById('statSavedTokens');
-  const compressionBanner = document.getElementById('compressionBanner');
-  const compressionInfo = document.getElementById('compressionInfo');
+  const contextSummary = document.getElementById('contextSummary');
+  const branchControls = document.getElementById('branchControls');
+  const branchSelect = document.getElementById('branchSelect');
+  const createBranchBtn = document.getElementById('createBranchBtn');
 
   // === Состояние ===
   let history = []; // массив {role, content}
+  let branches = []; // список веток [{branch_id, name, checkpoint, message_count}]
+  let currentBranchId = null; // активная ветка (для стратегии branching)
   // Идентификатор сессии: сохраняется в localStorage, чтобы контекст
   // восстанавливался между перезагрузками страницы.
   let sessionId = localStorage.getItem('agentSessionId') || null;
@@ -571,16 +638,6 @@
     statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
     statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
     statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
-    // «Экономия» — накопленная за всю сессию (может быть отрицательной,
-    // пока затраты на саммаризацию не окупились).
-    const savedTotal = (usage && usage.total_saved_tokens != null) ? usage.total_saved_tokens : null;
-    if (savedTotal == null) {
-      statSavedTokens.textContent = '—';
-      statSavedTokens.className = 'value';
-    } else {
-      statSavedTokens.textContent = formatNumber(savedTotal);
-      statSavedTokens.className = 'value ' + (savedTotal > 0 ? 'positive' : savedTotal < 0 ? 'negative' : 'zero');
-    }
     statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
   }
 
@@ -588,30 +645,69 @@
     return Number(n || 0).toLocaleString('ru-RU');
   }
 
-  // Отображение статуса сжатия контекста (баннер + экономия токенов)
-  function updateCompression(compression) {
-    if (compression && compression.applied) {
-      compressionBanner.style.display = 'flex';
-      const netSaved = compression.total_saved_tokens != null
-        ? compression.total_saved_tokens
-        : 0;
-      const summaryCost = compression.total_summary_tokens || 0;
-      const netLabel = netSaved >= 0
-        ? `чистый выигрыш <span class="saved">${formatNumber(netSaved)}</span> токенов`
-        : `пока в минусе <span class="saved">${formatNumber(Math.abs(netSaved))}</span> токенов`;
-      compressionInfo.innerHTML =
-        `Контекст сжат: <b>${formatNumber(compression.summarized_messages || 0)}</b> сообщ. в резюме · ` +
-        `${netLabel} ` +
-        `<span class="cost">(минус ${formatNumber(summaryCost)} на саммаризацию)</span>`;
-      // Если сжатие произошло именно сейчас — подсвечиваем баннер.
-      if (compression.compressed_this_turn) {
-        compressionBanner.classList.remove('flash');
-        void compressionBanner.offsetWidth; // перезапуск анимации
-        compressionBanner.classList.add('flash');
+  // === Сводка по контексту (заменяет баннер сжатия) ===
+  function updateBranchControlsVisibility() {
+    const isBranching = strategyEl.value === 'branching';
+    branchControls.classList.toggle('visible', isBranching);
+  }
+
+  function renderBranches() {
+    if (!branches.length) {
+      branchSelect.innerHTML = '<option value="">— нет веток —</option>';
+      return;
+    }
+    branchSelect.innerHTML = branches.map(b => {
+      const label = `${b.name} (${b.message_count} сообщ.)`;
+      const selected = b.branch_id === currentBranchId ? ' selected' : '';
+      return `<option value="${escapeHtml(b.branch_id)}"${selected}>${escapeHtml(label)}</option>`;
+    }).join('');
+  }
+
+  function renderContext(context, flash) {
+    if (!context) {
+      contextSummary.style.display = 'none';
+      contextSummary.innerHTML = '';
+      return;
+    }
+    contextSummary.style.display = 'block';
+
+    const strategy = context.strategy;
+    const total = context.total_messages || 0;
+    const sent = context.sent_messages != null ? context.sent_messages : 0;
+    const discarded = context.discarded_messages != null ? context.discarded_messages : 0;
+    let html = '';
+
+    if (strategy === 'sticky_facts') {
+      const facts = context.facts || {};
+      const keys = Object.keys(facts);
+      let factsHtml;
+      if (keys.length) {
+        factsHtml = '<ul class="facts-list">' + keys.map(k =>
+          `<li><b>${escapeHtml(k)}</b>: ${escapeHtml(String(facts[k]))}</li>`
+        ).join('') + '</ul>';
+      } else {
+        factsHtml = '<div class="meta">Факты ещё не извлечены.</div>';
       }
+      html =
+        `<div class="summary-head"><span class="icon">🧠</span> Sticky Facts · фактов: ${formatNumber(keys.length)}</div>` +
+        factsHtml +
+        `<div class="meta">Отправлено модели: <b>факты</b> + последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+    } else if (strategy === 'branching') {
+      const current = branches.find(b => b.branch_id === currentBranchId) || {};
+      html =
+        `<div class="summary-head"><span class="icon">🔀</span> Branching · ветка «${escapeHtml(current.name || '—')}»</div>` +
+        `<div class="meta">Сообщений в ветке: <b>${formatNumber(total)}</b> · веток всего: <b>${formatNumber(branches.length)}</b> · checkpoint: <b>${formatNumber(current.checkpoint || 0)}</b></div>`;
     } else {
-      compressionBanner.style.display = 'none';
-      compressionInfo.innerHTML = 'Контекст сжат';
+      html =
+        `<div class="summary-head"><span class="icon">🪟</span> Sliding Window · окно N = ${formatNumber(context.window_size || 0)}</div>` +
+        `<div class="meta">Отправлено модели: последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+    }
+
+    contextSummary.innerHTML = html;
+    if (flash) {
+      contextSummary.classList.remove('flash');
+      void contextSummary.offsetWidth; // перезапуск анимации
+      contextSummary.classList.add('flash');
     }
   }
 
@@ -628,6 +724,9 @@
       alert('Выберите модель');
       return;
     }
+
+    const strategy = strategyEl.value;
+    const windowSize = parseInt(windowSizeEl.value) || 10;
 
     // Добавляем сообщение пользователя в историю
     history.push({ role: 'user', content: userMessage });
@@ -649,6 +748,8 @@
     const payload = {
       messages: history,
       model: model,
+      strategy: strategy,
+      window_size: windowSize,
       temperature: temperature,
       top_k: topK,
       top_p: topP,
@@ -679,9 +780,16 @@
       history.push({ role: 'assistant', content: data.response });
       renderChat();
 
-      // Обновляем статистику и статус сжатия контекста
+      // Для branching-стратегии актуализируем список веток из ответа.
+      if (data.context && data.context.branches) {
+        branches = data.context.branches;
+        currentBranchId = data.context.branch ? data.context.branch.id : currentBranchId;
+        renderBranches();
+      }
+
+      // Обновляем статистику и сводку по контексту
       updateStats(data.duration, data.usage, data.cost);
-      updateCompression(data.compression);
+      renderContext(data.context, true);
 
       // Прокручиваем к последнему сообщению
       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -690,6 +798,76 @@
       // Удаляем последнее сообщение пользователя из истории (оно не было обработано)
       history.pop();
       renderChat();
+    }
+  }
+
+  // === Управление ветками (стратегия branching) ===
+  async function createBranches() {
+    if (!sessionId) {
+      alert('Сначала отправьте хотя бы одно сообщение, чтобы создать диалог.');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE}/agent/${encodeURIComponent(sessionId)}/branch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Ошибка создания веток');
+      }
+      const data = await response.json();
+      currentBranchId = data.current_branch;
+      branches = data.branches || [];
+      if (data.messages) {
+        history = data.messages;
+        renderChat();
+      }
+      renderBranches();
+      renderContext({
+        strategy: 'branching',
+        total_messages: history.length,
+        branch: { id: currentBranchId },
+        branches: branches,
+        sent_messages: history.length,
+        discarded_messages: 0,
+      }, true);
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
+    }
+  }
+
+  async function switchBranch(branchId) {
+    if (!sessionId || !branchId) return;
+    try {
+      const response = await fetch(`${API_BASE}/agent/${encodeURIComponent(sessionId)}/switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch_id: branchId }),
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Ошибка переключения ветки');
+      }
+      const data = await response.json();
+      currentBranchId = data.current_branch;
+      branches = data.branches || [];
+      if (data.messages) {
+        history = data.messages;
+        renderChat();
+      }
+      renderBranches();
+      renderContext({
+        strategy: 'branching',
+        total_messages: history.length,
+        branch: { id: currentBranchId },
+        branches: branches,
+        sent_messages: history.length,
+        discarded_messages: 0,
+      }, true);
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
     }
   }
 
@@ -702,14 +880,24 @@
       if (data.messages && data.messages.length) {
         history = data.messages;
         sessionId = data.session_id || savedId;
-        // Восстанавливаем и статус сжатия контекста (резюме хранится в БД).
-        updateCompression({
-          applied: !!data.summary,
-          summarized_messages: data.summarized_count || 0,
-          total_saved_tokens: data.total_saved_tokens || 0,
-          total_summary_tokens: data.total_summary_tokens || 0,
-          compressed_this_turn: false,
-        });
+        branches = data.branches || [];
+        currentBranchId = data.current_branch || null;
+        if (data.strategy) strategyEl.value = data.strategy;
+        if (data.window_size != null) windowSizeEl.value = data.window_size;
+        const win = data.window_size || 10;
+        renderBranches();
+        updateBranchControlsVisibility();
+        renderContext({
+          strategy: data.strategy,
+          total_messages: history.length,
+          window_size: win,
+          facts: data.facts || {},
+          facts_count: Object.keys(data.facts || {}).length,
+          branch: { id: currentBranchId },
+          branches: branches,
+          sent_messages: data.strategy === 'branching' ? history.length : Math.min(history.length, win),
+          discarded_messages: data.strategy === 'branching' ? 0 : Math.max(0, history.length - win),
+        }, false);
         return true;
       }
       return false;
@@ -728,19 +916,26 @@
     sessionId = null;
     localStorage.removeItem('agentSessionId');
     history = [];
+    branches = [];
+    currentBranchId = null;
     history.push({
       role: 'assistant',
       content: '👋 Привет! Я AI-агент на базе DeepSeek. Напиши что-нибудь!'
     });
     renderChat();
+    renderBranches();
+    updateBranchControlsVisibility();
     updateStats(null, null, null);
-    updateCompression(null);
+    renderContext(null);
     messageEl.focus();
   }
 
   // === Обработчики ===
   sendBtn.addEventListener('click', sendRequest);
   resetBtn.addEventListener('click', resetChat);
+  createBranchBtn.addEventListener('click', createBranches);
+  branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
+  strategyEl.addEventListener('change', updateBranchControlsVisibility);
   messageEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -750,6 +945,7 @@
 
   // === Инициализация ===
   (async function init() {
+    updateBranchControlsVisibility();
     // Если сессия была — восстанавливаем историю с сервера,
     // чтобы продолжить диалог так, как будто агент не выключался.
     if (sessionId) {
@@ -769,7 +965,9 @@
       content: '👋 Привет! Я AI-агент на базе DeepSeek. Напиши что-нибудь!'
     });
     renderChat();
+    renderBranches();
     updateStats(null, null, null);
+    renderContext(null);
   })();
 </script>
 

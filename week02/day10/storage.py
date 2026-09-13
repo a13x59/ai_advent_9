@@ -5,15 +5,27 @@
 При старте агент загружает всю сохранённую историю обратно в память,
 поэтому диалог можно продолжить так, как будто агент не выключался.
 
-Помимо полной истории сообщений хранится отдельно «резюме» (summary)
-сжатой части диалога, а также счётчик сжатых сообщений и накопленная
-экономия токенов. Всё это восстанавливается между перезапусками агента.
+Полная история ВСЕГДА хранится в БД и восстанавливается между перезапусками.
+Поверх полной истории работают 3 стратегии управления контекстом, которые
+выбираются параметром запроса:
+
+  • sliding_window — в запрос уходит только окно последних N сообщений;
+  • sticky_facts    — отдельный блок фактов (ключ-значение) + окно последних N;
+  • branching       — диалог ветвится от контрольной точки (checkpoint): ветки
+                      хранятся и продолжаются независимо, между ними можно
+                      переключаться.
+
+Для каждой сессии хранится:
+  • полная история сообщений по каждой ветке (таблица branches);
+  • указатель на активную ветку и выбранная стратегия (таблица conversations);
+  • блок фактов ключ-значение для стратегии sticky_facts (таблица session_facts).
 """
 import json
 import logging
 import os
 import sqlite3
 import threading
+import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -27,13 +39,20 @@ DB_PATH = os.environ.get(
 
 
 class HistoryStorage:
-    """Хранит историю сообщений (messages) и резюме (summary) по сессиям."""
+    """Хранит сессии, ветки диалога и факты (ключ-значение)."""
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         self._lock = threading.Lock()
-        self._cache: Dict[str, List[dict]] = {}
-        self._summary_cache: Dict[str, dict] = {}
+        # session_id -> {
+        #     "current_branch": str,
+        #     "strategy": str,
+        #     "window_size": int,
+        #     "branches": {branch_id -> {"name": str, "messages": list, "checkpoint": int}},
+        # }
+        self._sessions: Dict[str, dict] = {}
+        self._branch_index: Dict[str, str] = {}  # branch_id -> session_id
+        self._facts: Dict[str, dict] = {}        # session_id -> facts dict
         self._init_db()
         self.load_all_history()
 
@@ -45,183 +64,375 @@ class HistoryStorage:
     def _init_db(self) -> None:
         with self._lock:
             with closing(self._connect()) as conn:
+                # Метаданные сессии: активная ветка, выбранная стратегия, окно.
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS conversations (
-                        session_id TEXT PRIMARY KEY,
-                        messages    TEXT NOT NULL,
-                        created_at  TEXT NOT NULL,
-                        updated_at  TEXT NOT NULL
+                        session_id     TEXT PRIMARY KEY,
+                        current_branch TEXT NOT NULL,
+                        strategy       TEXT NOT NULL DEFAULT 'sliding_window',
+                        window_size    INTEGER NOT NULL DEFAULT 10,
+                        created_at     TEXT NOT NULL,
+                        updated_at     TEXT NOT NULL
                     )
                     """
                 )
-                # Отдельная таблица для резюме сжатой части диалога.
-                # summary хранится независимо от полной истории и подставляется
-                # в запрос вместо старых сообщений, экономя токены.
+                # Ветки диалога. Каждая ветка хранит СВОЮ полную историю,
+                # поэтому даже после ветвления ничего не теряется.
                 conn.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS session_summaries (
-                        session_id          TEXT PRIMARY KEY,
-                        summary             TEXT NOT NULL,
-                        summarized_count    INTEGER NOT NULL DEFAULT 0,
-                        total_saved_tokens  INTEGER NOT NULL DEFAULT 0,
-                        total_summary_tokens INTEGER NOT NULL DEFAULT 0,
-                        created_at          TEXT NOT NULL,
-                        updated_at          TEXT NOT NULL
+                    CREATE TABLE IF NOT EXISTS branches (
+                        branch_id  TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        name       TEXT NOT NULL,
+                        messages   TEXT NOT NULL,
+                        checkpoint INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
                     )
                     """
                 )
-                # Миграция для уже существующих БД: добавляем колонку учёта
-                # затрат на саммаризацию, если таблица была создана раньше.
-                cols = [
-                    r[1]
-                    for r in conn.execute("PRAGMA table_info(session_summaries)").fetchall()
-                ]
-                if "total_summary_tokens" not in cols:
+                # Блок фактов (ключ-значение) для стратегии sticky_facts.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_facts (
+                        session_id TEXT PRIMARY KEY,
+                        facts      TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                # Миграция: старый механизм саммаризации больше не используется,
+                # его таблицу можно безопасно удалить.
+                conn.execute("DROP TABLE IF EXISTS session_summaries")
+                # Совместимость со старыми БД, где не было новых колонок.
+                cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+                if "strategy" not in cols:
                     conn.execute(
-                        "ALTER TABLE session_summaries "
-                        "ADD COLUMN total_summary_tokens INTEGER NOT NULL DEFAULT 0"
+                        "ALTER TABLE conversations ADD COLUMN strategy TEXT NOT NULL DEFAULT 'sliding_window'"
+                    )
+                if "window_size" not in cols:
+                    conn.execute(
+                        "ALTER TABLE conversations ADD COLUMN window_size INTEGER NOT NULL DEFAULT 10"
                     )
                 conn.commit()
 
     def load_all_history(self) -> int:
-        """Загружает всю сохранённую историю и резюме из БД в память.
-
-        Вызывается при старте агента (при перезапуске), чтобы восстановить
-        контекст всех предыдущих диалогов.
-        """
+        """Загружает все сессии, ветки и факты из БД в память при старте."""
         with self._lock:
             with closing(self._connect()) as conn:
-                rows = conn.execute(
-                    "SELECT session_id, messages FROM conversations"
+                session_rows = conn.execute(
+                    "SELECT session_id, current_branch, strategy, window_size FROM conversations"
                 ).fetchall()
-                summary_rows = conn.execute(
-                    "SELECT session_id, summary, summarized_count, "
-                    "total_saved_tokens, total_summary_tokens "
-                    "FROM session_summaries"
+                branch_rows = conn.execute(
+                    "SELECT branch_id, session_id, name, messages, checkpoint FROM branches"
                 ).fetchall()
-            self._cache = {
-                row["session_id"]: json.loads(row["messages"]) for row in rows
-            }
-            self._summary_cache = {
-                row["session_id"]: {
-                    "summary": row["summary"],
-                    "summarized_count": row["summarized_count"],
-                    "total_saved_tokens": row["total_saved_tokens"],
-                    "total_summary_tokens": row["total_summary_tokens"],
-                }
-                for row in summary_rows
-            }
-        logger.info(
-            "История загружена: восстановлено сессий — %d, резюме — %d",
-            len(self._cache),
-            len(self._summary_cache),
-        )
-        return len(self._cache)
+                facts_rows = conn.execute(
+                    "SELECT session_id, facts FROM session_facts"
+                ).fetchall()
 
-    def load(self, session_id: str) -> Optional[List[dict]]:
-        """Возвращает историю сообщений сессии или None, если сессия новая."""
+            self._sessions = {}
+            self._branch_index = {}
+            for row in session_rows:
+                self._sessions[row["session_id"]] = {
+                    "current_branch": row["current_branch"],
+                    "strategy": row["strategy"],
+                    "window_size": row["window_size"],
+                    "branches": {},
+                }
+            for row in branch_rows:
+                session = self._sessions.get(row["session_id"])
+                if session is None:
+                    continue
+                session["branches"][row["branch_id"]] = {
+                    "name": row["name"],
+                    "messages": json.loads(row["messages"]),
+                    "checkpoint": row["checkpoint"],
+                }
+                self._branch_index[row["branch_id"]] = row["session_id"]
+            self._facts = {
+                row["session_id"]: json.loads(row["facts"]) for row in facts_rows
+            }
+
+        logger.info(
+            "История загружена: сессий — %d, веток — %d, блоков фактов — %d",
+            len(self._sessions),
+            len(self._branch_index),
+            len(self._facts),
+        )
+        return len(self._sessions)
+
+    # ------------------------------------------------------------------
+    # Сессии и метаданные
+    # ------------------------------------------------------------------
+    def get_session_meta(self, session_id: str) -> Optional[dict]:
+        """Возвращает {"current_branch", "strategy", "window_size"} или None."""
         with self._lock:
-            messages = self._cache.get(session_id)
-            # Копия, чтобы вызывающий код не менял кэш напрямую.
-            return list(messages) if messages is not None else None
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            return {
+                "current_branch": session["current_branch"],
+                "strategy": session["strategy"],
+                "window_size": session["window_size"],
+            }
+
+    def create_session(
+        self,
+        session_id: str,
+        strategy: str = "sliding_window",
+        window_size: int = 10,
+        messages: Optional[List[dict]] = None,
+        branch_name: str = "main",
+    ) -> None:
+        """Создаёт новую сессию с одной стартовой веткой."""
+        now = datetime.now(timezone.utc).isoformat()
+        branch_id = uuid.uuid4().hex
+        messages = list(messages or [])
+        with self._lock:
+            self._sessions[session_id] = {
+                "current_branch": branch_id,
+                "strategy": strategy,
+                "window_size": window_size,
+                "branches": {
+                    branch_id: {
+                        "name": branch_name,
+                        "messages": messages,
+                        "checkpoint": 0,
+                    }
+                },
+            }
+            self._branch_index[branch_id] = session_id
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO conversations
+                        (session_id, current_branch, strategy, window_size, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (session_id, branch_id, strategy, window_size, now, now),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO branches
+                        (branch_id, session_id, name, messages, checkpoint, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        branch_id, session_id, branch_name,
+                        json.dumps(messages, ensure_ascii=False), 0, now, now,
+                    ),
+                )
+                conn.commit()
+
+    def set_session_meta(self, session_id: str, strategy: str, window_size: int) -> bool:
+        """Обновляет стратегию и размер окна сессии."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return False
+            session["strategy"] = strategy
+            session["window_size"] = window_size
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    """
+                    UPDATE conversations
+                    SET strategy = ?, window_size = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (strategy, window_size, now, session_id),
+                )
+                conn.commit()
+            return True
+
+    def get_current_branch_id(self, session_id: str) -> Optional[str]:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            return session["current_branch"] if session else None
+
+    # ------------------------------------------------------------------
+    # Сообщения (работа с активной веткой)
+    # ------------------------------------------------------------------
+    def load(self, session_id: str) -> Optional[List[dict]]:
+        """Возвращает историю активной ветки сессии или None."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            branch = session["branches"].get(session["current_branch"])
+            return list(branch["messages"]) if branch else None
+
+    def load_branch(self, branch_id: str) -> Optional[List[dict]]:
+        """Возвращает историю конкретной ветки по её id или None."""
+        with self._lock:
+            session_id = self._branch_index.get(branch_id)
+            if not session_id:
+                return None
+            branch = self._sessions[session_id]["branches"].get(branch_id)
+            return list(branch["messages"]) if branch else None
 
     def save(self, session_id: str, messages: List[dict]) -> None:
-        """Сохраняет (создаёт или обновляет) историю сообщений сессии."""
+        """Сохраняет историю сообщений в активную ветку сессии."""
         now = datetime.now(timezone.utc).isoformat()
         payload = json.dumps(messages, ensure_ascii=False)
         with self._lock:
-            self._cache[session_id] = list(messages)
+            session = self._sessions.get(session_id)
+            if session is None:
+                return
+            branch_id = session["current_branch"]
+            session["branches"][branch_id]["messages"] = list(messages)
             with closing(self._connect()) as conn:
                 conn.execute(
-                    """
-                    INSERT INTO conversations (session_id, messages, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO UPDATE SET
-                        messages   = excluded.messages,
-                        updated_at = excluded.updated_at
-                    """,
-                    (session_id, payload, now, now),
+                    "UPDATE branches SET messages = ?, updated_at = ? WHERE branch_id = ?",
+                    (payload, now, branch_id),
+                )
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
                 )
                 conn.commit()
 
-    # ------------------------------------------------------------
-    # Резюме (summary) — хранится отдельно от полной истории
-    # ------------------------------------------------------------
-    def load_summary(self, session_id: str) -> Optional[dict]:
-        """Возвращает резюме сессии:
-        {"summary", "summarized_count", "total_saved_tokens", "total_summary_tokens"}
-        или None.
-        """
-        with self._lock:
-            state = self._summary_cache.get(session_id)
-            return dict(state) if state is not None else None
-
-    def save_summary(
+    # ------------------------------------------------------------------
+    # Ветки (стратегия branching)
+    # ------------------------------------------------------------------
+    def create_branch(
         self,
         session_id: str,
-        summary: str,
-        summarized_count: int,
-        total_saved_tokens: int,
-        total_summary_tokens: int = 0,
-    ) -> None:
-        """Сохраняет (создаёт или обновляет) резюме сжатой части диалога."""
+        name: str,
+        messages: List[dict],
+        checkpoint: int,
+    ) -> Optional[str]:
+        """Создаёт новую ветку и возвращает её id (или None, если сессии нет)."""
         now = datetime.now(timezone.utc).isoformat()
+        branch_id = uuid.uuid4().hex
         with self._lock:
-            self._summary_cache[session_id] = {
-                "summary": summary,
-                "summarized_count": summarized_count,
-                "total_saved_tokens": total_saved_tokens,
-                "total_summary_tokens": total_summary_tokens,
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            session["branches"][branch_id] = {
+                "name": name,
+                "messages": list(messages),
+                "checkpoint": checkpoint,
             }
+            self._branch_index[branch_id] = session_id
             with closing(self._connect()) as conn:
                 conn.execute(
                     """
-                    INSERT INTO session_summaries
-                        (session_id, summary, summarized_count, total_saved_tokens,
-                         total_summary_tokens, created_at, updated_at)
+                    INSERT INTO branches
+                        (branch_id, session_id, name, messages, checkpoint, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO UPDATE SET
-                        summary              = excluded.summary,
-                        summarized_count     = excluded.summarized_count,
-                        total_saved_tokens   = excluded.total_saved_tokens,
-                        total_summary_tokens = excluded.total_summary_tokens,
-                        updated_at           = excluded.updated_at
                     """,
-                    (session_id, summary, summarized_count, total_saved_tokens,
-                     total_summary_tokens, now, now),
+                    (
+                        branch_id, session_id, name,
+                        json.dumps(messages, ensure_ascii=False), checkpoint, now, now,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE conversations SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
+                )
+                conn.commit()
+            return branch_id
+
+    def switch_branch(self, session_id: str, branch_id: str) -> bool:
+        """Переключает активную ветку сессии; False, если ветки нет."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None or branch_id not in session["branches"]:
+                return False
+            session["current_branch"] = branch_id
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    "UPDATE conversations SET current_branch = ?, updated_at = ? WHERE session_id = ?",
+                    (branch_id, now, session_id),
+                )
+                conn.commit()
+            return True
+
+    def list_branches(self, session_id: str) -> List[dict]:
+        """Список веток сессии: [{branch_id, name, checkpoint, message_count}]."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return []
+            result = []
+            for bid, branch in session["branches"].items():
+                result.append(
+                    {
+                        "branch_id": bid,
+                        "name": branch["name"],
+                        "checkpoint": branch["checkpoint"],
+                        "message_count": len(branch["messages"]),
+                    }
+                )
+            return result
+
+    # ------------------------------------------------------------------
+    # Факты (стратегия sticky_facts)
+    # ------------------------------------------------------------------
+    def load_facts(self, session_id: str) -> Optional[dict]:
+        with self._lock:
+            facts = self._facts.get(session_id)
+            return dict(facts) if facts is not None else None
+
+    def save_facts(self, session_id: str, facts: dict) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._facts[session_id] = dict(facts)
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO session_facts (session_id, facts, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        facts      = excluded.facts,
+                        updated_at = excluded.updated_at
+                    """,
+                    (session_id, json.dumps(facts, ensure_ascii=False), now, now),
                 )
                 conn.commit()
 
+    # ------------------------------------------------------------------
+    # Управление сессиями
+    # ------------------------------------------------------------------
     def delete(self, session_id: str) -> bool:
-        """Удаляет сессию (историю и резюме); True, если сессия существовала."""
+        """Удаляет сессию целиком: ветки, факты и метаданные."""
         with self._lock:
-            if session_id not in self._cache:
+            session = self._sessions.pop(session_id, None)
+            if session is None:
                 return False
-            del self._cache[session_id]
-            self._summary_cache.pop(session_id, None)
+            for branch_id in session["branches"]:
+                self._branch_index.pop(branch_id, None)
+            self._facts.pop(session_id, None)
             with closing(self._connect()) as conn:
                 conn.execute(
                     "DELETE FROM conversations WHERE session_id = ?", (session_id,)
                 )
                 conn.execute(
-                    "DELETE FROM session_summaries WHERE session_id = ?", (session_id,)
+                    "DELETE FROM branches WHERE session_id = ?", (session_id,)
+                )
+                conn.execute(
+                    "DELETE FROM session_facts WHERE session_id = ?", (session_id,)
                 )
                 conn.commit()
             return True
 
     def list_sessions(self) -> List[dict]:
-        """Возвращает список сохранённых сессий (для отладки/обзора)."""
+        """Список сохранённых сессий (для обзора/отладки)."""
         with self._lock:
             result = []
-            for sid, messages in self._cache.items():
-                summary = self._summary_cache.get(sid)
+            for sid, session in self._sessions.items():
+                branch = session["branches"].get(session["current_branch"])
                 result.append(
                     {
                         "session_id": sid,
-                        "message_count": len(messages),
-                        "summarized_count": summary["summarized_count"] if summary else 0,
-                        "total_saved_tokens": summary["total_saved_tokens"] if summary else 0,
+                        "strategy": session["strategy"],
+                        "message_count": len(branch["messages"]) if branch else 0,
+                        "branch_count": len(session["branches"]),
+                        "facts_count": len(self._facts.get(sid, {})),
                     }
                 )
             return result
