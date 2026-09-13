@@ -481,7 +481,7 @@
       </select>
 
       <label for="window_size">Размер окна N (для Sliding Window / Sticky Facts)</label>
-      <input type="number" id="window_size" value="10" step="1" min="1">
+      <input type="number" id="window_size" value="5" step="1" min="1">
 
       <div class="row2">
         <div>
@@ -584,6 +584,8 @@
   // === Элементы DOM ===
   const messageEl = document.getElementById('message');
   const modelEl = document.getElementById('model');
+  const strategyEl = document.getElementById('strategy');
+  const windowSizeEl = document.getElementById('window_size');
   const temperatureEl = document.getElementById('temperature');
   const topKEl = document.getElementById('top_k');
   const topPEl = document.getElementById('top_p');
@@ -726,7 +728,7 @@
     }
 
     const strategy = strategyEl.value;
-    const windowSize = parseInt(windowSizeEl.value) || 10;
+    const windowSize = parseInt(windowSizeEl.value) || 5;
 
     // Добавляем сообщение пользователя в историю
     history.push({ role: 'user', content: userMessage });
@@ -884,7 +886,7 @@
         currentBranchId = data.current_branch || null;
         if (data.strategy) strategyEl.value = data.strategy;
         if (data.window_size != null) windowSizeEl.value = data.window_size;
-        const win = data.window_size || 10;
+        const win = data.window_size || 5;
         renderBranches();
         updateBranchControlsVisibility();
         renderContext({
