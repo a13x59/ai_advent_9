@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Union
 from fastapi.middleware.cors import CORSMiddleware
 
-from storage import storage
+from storage import storage, WORKING_KINDS, WORKING_STATES, LONG_TERM_KINDS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,7 +22,6 @@ logger = logging.getLogger("agent")
 
 app = FastAPI(title="AI Agent Service", description="Обработка запросов к DeepSeek")
 
-# Разрешаем CORS для клиента
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,18 +31,18 @@ app.add_middleware(
 
 # Конфигурация API DeepSeek
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-1234567890")  # Заглушка, если ключ такой – используем мок
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-1234567890")  # Заглушка — используем мок
 
-# Цены DeepSeek (пример, за 1M токенов) — используются для оценки стоимости.
-INPUT_PRICE_PER_M = 0.14    # $0.14 за 1M входных токенов
-OUTPUT_PRICE_PER_M = 0.28   # $0.28 за 1M выходных токенов
+# Цены DeepSeek (за 1M токенов) — для оценки стоимости.
+INPUT_PRICE_PER_M = 0.14
+OUTPUT_PRICE_PER_M = 0.28
 
 # ------------------------------------------------------------
 # Стратегии управления контекстом
 # ------------------------------------------------------------
-# sliding_window — в запрос идут только последние N сообщений, остальное отбрасывается.
-# sticky_facts    — блок фактов (ключ-значение) + последние N сообщений.
-# branching       — диалог ветвится от checkpoint, ветки продолжаются независимо.
+# sliding_window — окно последних N сообщений + вся память.
+# sticky_facts    — факты (long_term с kind=fact) + рабочая память + окно N.
+# branching       — полная история активной ветки + вся память.
 STRATEGY_SLIDING_WINDOW = "sliding_window"
 STRATEGY_STICKY_FACTS = "sticky_facts"
 STRATEGY_BRANCHING = "branching"
@@ -51,17 +50,23 @@ STRATEGIES = {STRATEGY_SLIDING_WINDOW, STRATEGY_STICKY_FACTS, STRATEGY_BRANCHING
 DEFAULT_STRATEGY = STRATEGY_SLIDING_WINDOW
 DEFAULT_WINDOW_SIZE = 10
 
-FACTS_MAX_TOKENS = 512    # лимит токенов для извлечения фактов
-FACTS_TEMPERATURE = 0.2   # низкая температура — предсказуемый результат
+# Параметры вспомогательного вызова (генерация предложений памяти).
+SUGGEST_MAX_TOKENS = 512
+SUGGEST_TEMPERATURE = 0.2
 
-FACTS_SYSTEM = "Ты — ассистент, который ведёт память фактов диалога."
+SUGGEST_SYSTEM = "Ты — ассистент, который ведёт модель памяти агента."
 
-FACTS_PROMPT = (
-    "Извлеки из сообщения пользователя важные факты и верни их СТРОГО в виде "
-    "JSON-объекта (ключ — категория, значение — краткая формулировка). "
-    "Категории могут быть такими: цель, ограничения, предпочтения, решения, "
-    "договорённости, контекст и т.п. Не выдумывай лишнего. Объедини новые факты "
-    "с уже известными, ничего не теряя."
+SUGGEST_PROMPT = (
+    "Проанализируй сообщение пользователя и предложи, что стоит сохранить в память. "
+    "Верни СТРОГО JSON-объект вида {\"working\": [...], \"long_term\": [...]}.\n"
+    "working — данные ТЕКУЩЕЙ задачи (ключ, значение, kind, state):\n"
+    "  kind ∈ {goal, constraint, todo, result, context, note}; "
+    "state ∈ {pending, in_progress, done, blocked} или null.\n"
+    "long_term — профиль/решения/знания (ключ, значение, kind, tags):\n"
+    "  kind ∈ {profile, decision, knowledge, preference, agreement, fact}; "
+    "tags — список строк.\n"
+    "Объедини новое с уже известным. Не выдумывай лишнего. "
+    "Если сохранять нечего — верни пустые списки."
 )
 
 
@@ -69,7 +74,7 @@ FACTS_PROMPT = (
 class AgentRequest(BaseModel):
     messages: List[dict] = Field(..., description="История сообщений (role, content)")
     session_id: Optional[str] = Field(None, description="ID сессии для сохранения/восстановления контекста")
-    strategy: str = Field(DEFAULT_STRATEGY, description="Стратегия управления контекстом: sliding_window | sticky_facts | branching")
+    strategy: str = Field(DEFAULT_STRATEGY, description="Стратегия управления контекстом")
     window_size: int = Field(DEFAULT_WINDOW_SIZE, ge=1, description="Число последних сообщений в окне (N)")
     model: str = Field(..., description="Название модели (например, deepseek-chat)")
     temperature: Optional[float] = Field(1.0, ge=0.0, le=2.0)
@@ -77,31 +82,35 @@ class AgentRequest(BaseModel):
     top_p: Optional[float] = Field(1.0, ge=0.0, le=1.0)
     stop: Optional[Union[str, List[str]]] = None
     max_tokens: Optional[int] = Field(4096, ge=1, le=8192)
+    # Явные операции памяти: [{action: save|delete|move, layer, key, value, ...}]
+    memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
+    # Включить генерацию предложений памяти (не сохраняются автоматически — только на подтверждение)
+    auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
 
 
 class BranchRequest(BaseModel):
-    checkpoint: Optional[int] = Field(None, description="Индекс сообщения, от которого ветвимся (по умолчанию — конец диалога)")
+    checkpoint: Optional[int] = Field(None, description="Индекс сообщения, от которого ветвимся")
 
 
 class SwitchRequest(BaseModel):
     branch_id: str = Field(..., description="ID ветки, на которую переключаемся")
 
 
+class MemoryOpsRequest(BaseModel):
+    ops: List[dict] = Field(..., description="Список операций памяти (save/delete/move)")
+
+
+class SuggestRequest(BaseModel):
+    message: Optional[str] = Field(None, description="Сообщение для анализа (по умолчанию — последнее от пользователя)")
+    model: str = Field("deepseek-chat", description="Модель для генерации предложений")
+
+
 # ============================================================
 # Подсчёт токенов
 # ============================================================
-# Точное число токенов зависит от токенизатора конкретной модели (BPE).
-# DeepSeek использует словарь ~128K токенов, поэтому без тяжёлых зависимостей
-# (transformers / tiktoken) считаем приблизительно:
-#   • CJK-иероглифы и слоговая азбука (хирагана/катакана/хангыль) — ~1 токен на символ;
-#   • слова (латиница/кириллица/цифры) — ~1.3 токена на слово (из-за BPE-разбиения);
-#   • прочие символы (пунктуация, эмодзи и т.п.) — ~1 токен на символ.
-# Когда DeepSeek возвращает usage (prompt_tokens / completion_tokens), эти
-# значения используются как эталон для истории диалога и ответа модели.
-
 _CJK_RE = re.compile(
-    r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF"   # CJK Unified Ideographs
-    r"\u3040-\u30FF\uAC00-\uD7AF]"                  # хирагана/катакана/хангыль
+    r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF"
+    r"\u3040-\u30FF\uAC00-\uD7AF]"
 )
 _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9]+")
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
@@ -127,7 +136,6 @@ def estimate_messages_tokens(messages) -> int:
     return total
 
 
-# Мок-ответ для заглушки
 def mock_deepseek_response(messages, model, temperature, top_k, top_p, stop, max_tokens):
     user_message = messages[-1]["content"] if messages else ""
     content = f"Эхо (mock): {user_message}"
@@ -144,7 +152,6 @@ def mock_deepseek_response(messages, model, temperature, top_k, top_p, stop, max
     }
 
 
-# Универсальный вызов DeepSeek (без привязки к AgentRequest)
 def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -181,14 +188,9 @@ def call_deepseek(messages, request: AgentRequest):
 
 
 # ============================================================
-# Стратегия 2: Sticky Facts / Key-Value Memory
+# Вспомогательные функции для подсчёта стоимости
 # ============================================================
 def _call_tokens(input_text, output_text, usage=None):
-    """Токены вспомогательного вызова (вход, выход).
-
-    Если API вернул usage — берём его эталонные значения, иначе оцениваем
-    по тексту промпта и тексту ответа.
-    """
     usage = usage or {}
     inp = usage.get("prompt_tokens")
     out = usage.get("completion_tokens")
@@ -200,7 +202,6 @@ def _call_tokens(input_text, output_text, usage=None):
 
 
 def _tokens_money(input_tokens, output_tokens) -> float:
-    """Стоимость вызова в долларах по ценам DeepSeek."""
     return (input_tokens / 1_000_000) * INPUT_PRICE_PER_M + (output_tokens / 1_000_000) * OUTPUT_PRICE_PER_M
 
 
@@ -214,7 +215,6 @@ def parse_json_object(text: str) -> Optional[dict]:
             return obj
     except Exception:
         pass
-    # Модель может обернуть JSON в пояснительный текст — берём первую {...} скобку.
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
@@ -226,98 +226,188 @@ def parse_json_object(text: str) -> Optional[dict]:
     return None
 
 
-# Наивное извлечение фактов для мока (без реального API).
-def mock_extract_facts(existing, user_message):
-    facts = dict(existing or {})
+# ============================================================
+# Генерация предложений памяти
+# ============================================================
+def _kind_or(kind, allowed, default):
+    k = (kind or "").strip().lower()
+    return k if k in allowed else default
+
+
+def _state_or(state):
+    s = (state or "").strip().lower()
+    return s if s in WORKING_STATES else None
+
+
+def normalize_suggestion_list(items, layer) -> List[dict]:
+    out = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        entry = {"key": key, "value": str(item.get("value") or "")}
+        if layer == "working":
+            entry["kind"] = _kind_or(item.get("kind"), WORKING_KINDS, "note")
+            entry["state"] = _state_or(item.get("state"))
+        else:
+            entry["kind"] = _kind_or(item.get("kind"), LONG_TERM_KINDS, "fact")
+            tags = item.get("tags")
+            entry["tags"] = list(tags) if isinstance(tags, list) else []
+        out.append(entry)
+    return out
+
+
+def flatten_suggestions(suggestion) -> List[dict]:
+    """Превращает {working, long_term} в плоский список с полем layer."""
+    pending = []
+    for c in suggestion.get("working") or []:
+        c = dict(c)
+        c["layer"] = "working"
+        pending.append(c)
+    for c in suggestion.get("long_term") or []:
+        c = dict(c)
+        c["layer"] = "long_term"
+        pending.append(c)
+    return pending
+
+
+def mock_suggest_memory(working, long_term, user_message) -> dict:
+    """Наивное извлечение предложений памяти для мока (без реального API)."""
+    result = {"working": [], "long_term": []}
     t = (user_message or "").lower()
-    if any(k in t for k in ("цель", "задача", "нужно", "хочу")):
-        facts["цель"] = user_message
-    if any(k in t for k in ("нельзя", "огранич", "лимит", "не ")):
-        facts["ограничения"] = user_message
-    if any(k in t for k in ("предпочит", "нравится", "лучше", "люблю")):
-        facts["предпочтения"] = user_message
-    if any(k in t for k in ("решил", "решение", "давай", "сделаем")):
-        facts["решения"] = user_message
-    if any(k in t for k in ("договорились", "согласен", "договор")):
-        facts["договорённости"] = user_message
-    facts["последний_запрос"] = user_message
-    return facts
+    if any(k in t for k in ("цель", "задача", "нужно", "хочу", "сделай", "напиши")):
+        result["working"].append({
+            "key": "цель", "value": user_message, "kind": "goal", "state": "in_progress",
+        })
+    if any(k in t for k in ("нельзя", "огранич", "лимит", "без ", "не ")):
+        result["working"].append({
+            "key": "ограничения", "value": user_message, "kind": "constraint", "state": None,
+        })
+    if any(k in t for k in ("меня зовут", "моё имя", "мое имя", "представь")):
+        result["long_term"].append({
+            "key": "имя_пользователя", "value": user_message, "kind": "profile", "tags": [],
+        })
+    if any(k in t for k in ("предпочит", "нравится", "люблю", "лучше")):
+        result["long_term"].append({
+            "key": "предпочтения", "value": user_message, "kind": "preference", "tags": [],
+        })
+    if any(k in t for k in ("решил", "решение", "договорились", "запомни", "зафиксируй")):
+        result["long_term"].append({
+            "key": "решение", "value": user_message, "kind": "decision", "tags": [],
+        })
+    return result
 
 
-def extract_facts(existing_facts, user_message, model):
-    """Обновляет блок фактов по сообщению пользователя.
+def suggest_memory(working, long_term, user_message, model):
+    """Генерирует предложения памяти: {working: [...], long_term: [...]}.
 
-    Возвращает (facts_dict, input_tokens, output_tokens).
+    Возвращает (suggestion, input_tokens, output_tokens). НИЧЕГО не сохраняет —
+    пользователь явно подтверждает предложения.
     """
     if API_KEY == "sk-1234567890":
-        facts = mock_extract_facts(existing_facts, user_message)
-        return facts, estimate_tokens(user_message), estimate_tokens(json.dumps(facts, ensure_ascii=False))
+        result = mock_suggest_memory(working, long_term, user_message)
+        return result, estimate_tokens(user_message), estimate_tokens(json.dumps(result, ensure_ascii=False))
 
     prompt_text = (
-        FACTS_PROMPT
-        + "\n\nУже известные факты (JSON):\n"
-        + json.dumps(existing_facts or {}, ensure_ascii=False)
+        SUGGEST_PROMPT
+        + "\n\nТекущая рабочая память (JSON):\n"
+        + json.dumps(working, ensure_ascii=False)
+        + "\n\nДолговременная память (JSON):\n"
+        + json.dumps(long_term, ensure_ascii=False)
         + "\n\nСообщение пользователя:\n"
         + (user_message or "")
     )
     msgs = [
-        {"role": "system", "content": FACTS_SYSTEM},
+        {"role": "system", "content": SUGGEST_SYSTEM},
         {"role": "user", "content": prompt_text},
     ]
-    data = call_deepseek_raw(
-        msgs, model=model, temperature=FACTS_TEMPERATURE, max_tokens=FACTS_MAX_TOKENS
-    )
+    data = call_deepseek_raw(msgs, model=model, temperature=SUGGEST_TEMPERATURE, max_tokens=SUGGEST_MAX_TOKENS)
     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    facts = parse_json_object(content) or dict(existing_facts or {})
+    parsed = parse_json_object(content) or {}
+    result = {
+        "working": normalize_suggestion_list(parsed.get("working"), "working"),
+        "long_term": normalize_suggestion_list(parsed.get("long_term"), "long_term"),
+    }
     inp, out = _call_tokens(prompt_text, content, data.get("usage"))
-    return facts, inp, out
+    return result, inp, out
 
 
-def facts_to_text(facts) -> str:
-    """Превращает словарь фактов в системную подсказку для модели."""
-    if not facts:
+# ============================================================
+# Формирование контекста из трёх слоёв памяти
+# ============================================================
+def memory_entries_to_text(entries, layer, max_entries=40) -> str:
+    """Превращает список записей памяти в текстовый блок для модели."""
+    if not entries:
         return ""
-    lines = [f"- {k}: {v}" for k, v in facts.items()]
-    return "Важные факты из диалога (память «ключ-значение»):\n" + "\n".join(lines)
+    total = len(entries)
+    entries = sorted(entries, key=lambda e: (e.get("importance") or 0), reverse=True)
+    truncated = total > max_entries
+    entries = entries[:max_entries]
+
+    if layer == "long_term":
+        header = "Долговременная память (профиль, решения, знания):"
+        lines = [f"- [{e.get('kind', 'fact')}] {e['key']}: {e['value']}" for e in entries]
+    else:
+        header = "Рабочая память (текущая задача):"
+        lines = []
+        for e in entries:
+            state = f" · состояние: {e['state']}" if e.get("state") else ""
+            lines.append(f"- [{e.get('kind', 'note')}] {e['key']}: {e['value']}{state}")
+    if truncated:
+        lines.append(f"- ... (ещё {total - max_entries} записей опущено)")
+    return header + "\n" + "\n".join(lines)
 
 
-# ============================================================
-# Формирование контекста запроса в зависимости от стратегии
-# ============================================================
-def build_request_messages(strategy, conversation, facts, window_size):
-    """Собирает сообщения, которые будут отправлены модели.
+def build_memory_system_block(working, long_term, long_term_kinds=None) -> str:
+    """Собирает системный блок из рабочей и долговременной памяти."""
+    lt_entries = long_term
+    if long_term_kinds is not None:
+        lt_entries = [e for e in long_term if e.get("kind") in long_term_kinds]
+    parts = []
+    lt_text = memory_entries_to_text(lt_entries, "long_term")
+    if lt_text:
+        parts.append(lt_text)
+    wm_text = memory_entries_to_text(working, "working")
+    if wm_text:
+        parts.append(wm_text)
+    return "\n\n".join(parts)
 
-    • sliding_window: последние N сообщений;
-    • sticky_facts:    факты (system) + последние N сообщений;
-    • branching:       полная история активной ветки.
+
+def build_request_messages(strategy, conversation, working, long_term, window_size):
+    """Собирает сообщения модели из трёх слоёв памяти.
+
+    • краткосрочная  — окно последних N (или полная ветка для branching);
+    • рабочая        — системный блок (всегда);
+    • долговременная — системный блок (для sticky_facts — только факты kind=fact).
     """
     if strategy == STRATEGY_STICKY_FACTS:
-        messages = []
-        facts_text = facts_to_text(facts)
-        if facts_text:
-            messages.append({"role": "system", "content": facts_text})
-        messages.extend(conversation[-window_size:])
-        return messages
+        block = build_memory_system_block(working, long_term, long_term_kinds={"fact"})
+    else:
+        block = build_memory_system_block(working, long_term)
+
+    messages = []
+    if block:
+        messages.append({"role": "system", "content": block})
     if strategy == STRATEGY_BRANCHING:
-        return list(conversation)
-    # По умолчанию — скользящее окно.
-    return conversation[-window_size:]
+        messages.extend(list(conversation))
+    else:
+        messages.extend(conversation[-window_size:])
+    return messages
 
 
-def build_context_summary(strategy, conversation, facts, window_size, session_id):
-    """Сводка по контексту для UI (зависит от выбранной стратегии)."""
+def build_context_summary(strategy, conversation, working, long_term, window_size, session_id):
+    """Сводка по контексту и памяти для UI."""
     total = len(conversation)
     info = {
         "strategy": strategy,
         "total_messages": total,
         "window_size": window_size,
+        "working_count": len(working),
+        "long_term_count": len(long_term),
     }
-    if strategy == STRATEGY_STICKY_FACTS:
-        info["facts"] = facts or {}
-        info["facts_count"] = len(facts or {})
-        info["sent_messages"] = min(total, window_size)
-        info["discarded_messages"] = max(0, total - window_size)
-    elif strategy == STRATEGY_BRANCHING:
+    if strategy == STRATEGY_BRANCHING:
         current = storage.get_current_branch_id(session_id)
         info["branch"] = {"id": current}
         info["branches"] = storage.list_branches(session_id)
@@ -329,7 +419,9 @@ def build_context_summary(strategy, conversation, facts, window_size, session_id
     return info
 
 
+# ============================================================
 # Основной обработчик
+# ============================================================
 @app.post("/agent")
 async def agent_endpoint(request: AgentRequest):
     agent_id = request.session_id or str(uuid.uuid4())
@@ -339,9 +431,10 @@ async def agent_endpoint(request: AgentRequest):
     window_size = request.window_size if request.window_size >= 1 else DEFAULT_WINDOW_SIZE
 
     try:
-        # 1. Восстановление или создание сессии. Полная история всегда лежит в БД.
+        # 1. Восстановление слоёв памяти.
         conversation = storage.load(agent_id)
-        facts = storage.load_facts(agent_id) or {}
+        working = storage.load_working(agent_id)
+        long_term = storage.load_long_term()
 
         current_user_message = next(
             (m for m in reversed(request.messages) if m.get("role") == "user"),
@@ -349,35 +442,43 @@ async def agent_endpoint(request: AgentRequest):
         )
 
         if conversation is None:
-            # Новая сессия: берём историю, присланную клиентом.
             conversation = list(request.messages)
             storage.create_session(agent_id, strategy=strategy, window_size=window_size, messages=conversation)
         else:
-            # Продолжаем диалог: добавляем новое сообщение пользователя к
-            # активной ветке, как будто агент не выключался.
             storage.set_session_meta(agent_id, strategy, window_size)
             if current_user_message and (not conversation or conversation[-1] != current_user_message):
                 conversation.append(current_user_message)
 
-        # 2. Стратегия sticky_facts: обновляем блок фактов после каждого
-        #    сообщения пользователя.
-        facts_cost_money = 0.0
-        if strategy == STRATEGY_STICKY_FACTS and current_user_message:
+        # 2. Явные операции памяти — пользователь выбирает, что и куда сохранять.
+        memory_ops_applied = []
+        for op in request.memory_ops or []:
             try:
-                facts, f_inp, f_out = extract_facts(facts, current_user_message.get("content", ""), request.model)
-                storage.save_facts(agent_id, facts)
-                facts_cost_money += _tokens_money(f_inp, f_out)
+                memory_ops_applied.append(storage.apply_memory_op(agent_id, op, source="manual"))
             except Exception as e:
-                logger.warning("Ошибка обновления фактов, оставляю прежние: %s", e)
+                logger.warning("Ошибка применения memory_op %s: %s", op, e)
+        working = storage.load_working(agent_id)
+        long_term = storage.load_long_term()
 
-        # 3. Формируем контекст согласно стратегии.
-        request_messages = build_request_messages(strategy, conversation, facts, window_size)
+        # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
+        suggest_cost = 0.0
+        pending_memory = []
+        if request.auto_suggest_memory and current_user_message:
+            try:
+                suggestion, s_inp, s_out = suggest_memory(
+                    working, long_term, current_user_message.get("content", ""), request.model
+                )
+                pending_memory = flatten_suggestions(suggestion)
+                suggest_cost += _tokens_money(s_inp, s_out)
+            except Exception as e:
+                logger.warning("Ошибка генерации предложений памяти: %s", e)
 
-        # Токены: полная история (активной ветки) vs реально отправленный контекст.
+        # 4. Формируем контекст из трёх слоёв.
+        request_messages = build_request_messages(strategy, conversation, working, long_term, window_size)
+
         raw_context_tokens = estimate_messages_tokens(conversation)
         context_tokens = estimate_messages_tokens(request_messages)
 
-        # 4. Вызов модели.
+        # 5. Вызов модели.
         if API_KEY == "sk-1234567890":
             data = mock_deepseek_response(
                 request_messages, request.model, request.temperature,
@@ -388,38 +489,33 @@ async def agent_endpoint(request: AgentRequest):
 
         duration = time.time() - start_time
 
-        # Извлечение ответа
         choice = data.get("choices", [{}])[0]
         content = choice.get("message", {}).get("content", "")
         usage = data.get("usage", {})
 
-        # --- Подсчёт токенов ---
         completion_tokens = usage.get("completion_tokens")
         if completion_tokens is None:
             completion_tokens = estimate_tokens(content)
         prompt_tokens = usage.get("prompt_tokens")
         if prompt_tokens is None:
             prompt_tokens = context_tokens
-        # Вся история диалога (активной ветки), откалиброванная реальным счётом.
         if context_tokens > 0:
             history_tokens = round(raw_context_tokens * (prompt_tokens / context_tokens))
         else:
             history_tokens = raw_context_tokens
         total_tokens = prompt_tokens + completion_tokens
 
-        # 5. Сохраняем ответ ассистента в полную историю активной ветки.
+        # 6. Сохраняем ответ в краткосрочную память (активная ветка).
         conversation.append({"role": "assistant", "content": content})
         storage.save(agent_id, conversation)
         storage.set_session_meta(agent_id, strategy, window_size)
 
-        # Сводка по контексту для UI (вместо баннера сжатия).
-        context_summary = build_context_summary(strategy, conversation, facts, window_size, agent_id)
+        context_summary = build_context_summary(strategy, conversation, working, long_term, window_size, agent_id)
 
-        # Расчёт стоимости: основной запрос + вызов извлечения фактов.
         cost = (
             (prompt_tokens / 1_000_000) * INPUT_PRICE_PER_M
             + (completion_tokens / 1_000_000) * OUTPUT_PRICE_PER_M
-            + facts_cost_money
+            + suggest_cost
         )
 
         return {
@@ -427,12 +523,15 @@ async def agent_endpoint(request: AgentRequest):
             "response": content,
             "strategy": strategy,
             "usage": {
-                "prompt_tokens": prompt_tokens,      # что отправлено модели
-                "response_tokens": completion_tokens, # ответ модели
-                "history_tokens": history_tokens,    # вся история активной ветки
-                "total_tokens": total_tokens,        # prompt + completion
+                "prompt_tokens": prompt_tokens,
+                "response_tokens": completion_tokens,
+                "history_tokens": history_tokens,
+                "total_tokens": total_tokens,
             },
             "context": context_summary,
+            "memory": {"working": working, "long_term": long_term},
+            "pending_memory": pending_memory,
+            "memory_ops_applied": memory_ops_applied,
             "duration": round(duration, 3),
             "cost": round(cost, 6),
         }
@@ -441,27 +540,75 @@ async def agent_endpoint(request: AgentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Получение сохранённой истории сессии (для восстановления контекста на клиенте)
+# ============================================================
+# Память (три слоя)
+# ============================================================
+@app.get("/agent/{session_id}/memory")
+async def get_memory(session_id: str):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    return storage.list_memory(session_id)
+
+
+@app.post("/agent/{session_id}/memory")
+async def apply_memory_ops(session_id: str, request: MemoryOpsRequest):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    applied = []
+    for op in request.ops:
+        applied.append(storage.apply_memory_op(session_id, op, source="manual"))
+    return {"applied": applied, "memory": storage.list_memory(session_id)}
+
+
+@app.post("/agent/{session_id}/memory/suggest")
+async def suggest_endpoint(session_id: str, request: SuggestRequest):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    conversation = storage.load(session_id) or []
+    message = request.message or next(
+        (m for m in reversed(conversation) if m.get("role") == "user"), None
+    )
+    if message is None:
+        raise HTTPException(status_code=400, detail="Нет сообщения пользователя для анализа")
+    working = storage.load_working(session_id)
+    long_term = storage.load_long_term()
+    suggestion, s_inp, s_out = suggest_memory(working, long_term, message.get("content", ""), request.model)
+    return {
+        "pending_memory": flatten_suggestions(suggestion),
+        "cost": round(_tokens_money(s_inp, s_out), 6),
+    }
+
+
+# Глобальная долговременная память (общая для всех сессий).
+@app.get("/memory/longterm")
+async def list_long_term():
+    return {"long_term": storage.load_long_term()}
+
+
+# ============================================================
+# История, ветки, сессии
+# ============================================================
 @app.get("/agent/{session_id}")
 async def get_agent_history(session_id: str):
     meta = storage.get_session_meta(session_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
     messages = storage.load(session_id)
-    facts = storage.load_facts(session_id) or {}
+    working = storage.load_working(session_id)
+    long_term = storage.load_long_term()
     branches = storage.list_branches(session_id)
     return {
         "session_id": session_id,
         "messages": messages,
         "strategy": meta["strategy"],
         "window_size": meta["window_size"],
-        "facts": facts,
+        "working": working,
+        "long_term": long_term,
         "current_branch": meta["current_branch"],
         "branches": branches,
     }
 
 
-# Список веток сессии (обзор/переключение)
 @app.get("/agent/{session_id}/branches")
 async def list_session_branches(session_id: str):
     if storage.get_session_meta(session_id) is None:
@@ -472,7 +619,6 @@ async def list_session_branches(session_id: str):
     }
 
 
-# Создание двух веток от checkpoint (стратегия branching)
 @app.post("/agent/{session_id}/branch")
 async def create_branches(session_id: str, request: BranchRequest):
     messages = storage.load(session_id)
@@ -484,7 +630,6 @@ async def create_branches(session_id: str, request: BranchRequest):
     checkpoint = max(0, min(checkpoint, total))
     prefix = messages[:checkpoint]
 
-    # Две независимые ветки, начинающиеся с одной и той же контрольной точки.
     existing_names = {b["name"] for b in storage.list_branches(session_id)}
 
     def unique_name(base):
@@ -508,7 +653,6 @@ async def create_branches(session_id: str, request: BranchRequest):
     }
 
 
-# Переключение активной ветки
 @app.post("/agent/{session_id}/switch")
 async def switch_branch(session_id: str, request: SwitchRequest):
     if not storage.switch_branch(session_id, request.branch_id):
@@ -520,13 +664,11 @@ async def switch_branch(session_id: str, request: SwitchRequest):
     }
 
 
-# Список сохранённых сессий (обзор/отладка)
 @app.get("/agents")
 async def list_agents():
     return {"sessions": storage.list_sessions()}
 
 
-# Удаление сессии (сброс контекста)
 @app.delete("/agent/{session_id}")
 async def delete_agent_history(session_id: str):
     if not storage.delete(session_id):
