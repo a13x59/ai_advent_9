@@ -59,10 +59,12 @@ SUGGEST_SYSTEM = "Ты — ассистент, который ведёт мод�
 SUGGEST_PROMPT = (
     "Проанализируй сообщение пользователя и предложи, что стоит сохранить в память. "
     "Верни СТРОГО JSON-объект вида {\"working\": [...], \"long_term\": [...]}.\n"
-    "working — данные ТЕКУЩЕЙ задачи (ключ, значение, kind, state):\n"
+    "Имена полей элементов ДОЛЖНЫ быть на английском языке: \"key\", \"value\", \"kind\". "
+    "Сами значения ключа и содержимого могут быть на русском.\n"
+    "working — данные ТЕКУЩЕЙ задачи: поля key (ключ), value (значение), kind, state.\n"
     "  kind ∈ {goal, constraint, todo, result, context, note}; "
     "state ∈ {pending, in_progress, done, blocked} или null.\n"
-    "long_term — профиль/решения/знания (ключ, значение, kind, tags):\n"
+    "long_term — профиль/решения/знания: поля key, value, kind, tags.\n"
     "  kind ∈ {profile, decision, knowledge, preference, agreement, fact}; "
     "tags — список строк.\n"
     "Объедини новое с уже известным. Не выдумывай лишнего. "
@@ -583,6 +585,22 @@ async def suggest_endpoint(session_id: str, request: SuggestRequest):
 @app.get("/memory/longterm")
 async def list_long_term():
     return {"long_term": storage.load_long_term()}
+
+
+# Добавление/удаление в долговременной памяти НЕ зависит от диалога/сессии.
+@app.post("/memory/longterm")
+async def apply_long_term_ops(request: MemoryOpsRequest):
+    applied = []
+    for op in request.ops:
+        action = (op.get("action") or "").strip().lower()
+        layer = (op.get("layer") or "").strip().lower()
+        if action not in ("save", "delete") or layer != "long_term":
+            raise HTTPException(
+                status_code=400,
+                detail="Глобальный эндпоинт принимает только save/delete для long_term",
+            )
+        applied.append(storage.apply_memory_op(None, op, source="manual"))
+    return {"applied": applied, "long_term": storage.load_long_term()}
 
 
 # ============================================================

@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -1258,26 +1257,60 @@
     }
 
     // === Операции над памятью ===
+    // Операции, привязанные к сессии (рабочая память и переносы между слоями).
     async function applyOps(ops) {
         if (!sessionId) {
-            alert('Сначала отправьте сообщение, чтобы создать диалог.');
-            return;
+            alert('Для рабочей памяти нужен активный диалог (создайте диалог, отправив сообщение).');
+            return false;
         }
-        const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ops}),
-        });
-        memory = data.memory;
-        renderMemory();
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops}),
+            });
+            memory = data.memory;
+            renderMemory();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с памятью: ${err.message}`);
+            return false;
+        }
     }
 
-    async function deleteMemory(layer, key) {
-        await applyOps([{action: 'delete', layer, key}]);
+    // Долговременная память глобальная — не зависит от диалога/сессии.
+    async function applyLongTermOps(ops) {
+        try {
+            const data = await apiFetch(`/memory/longterm`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops}),
+            });
+            memory.long_term = data.long_term || [];
+            renderMemory();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с долговременной памятью: ${err.message}`);
+            return false;
+        }
     }
 
-    async function moveMemory(key, fromLayer, toLayer) {
-        await applyOps([{action: 'move', from: fromLayer, to: toLayer, key}]);
+    async function loadLongTerm() {
+        try {
+            const data = await apiFetch('/memory/longterm');
+            memory.long_term = data.long_term || [];
+            renderMemory();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    function deleteMemory(layer, key) {
+        if (layer === 'long_term') return applyLongTermOps([{action: 'delete', layer, key}]);
+        return applyOps([{action: 'delete', layer, key}]);
+    }
+
+    function moveMemory(key, fromLayer, toLayer) {
+        // Перенос всегда затрагивает рабочую память (источник или цель) — нужна сессия.
+        return applyOps([{action: 'move', from: fromLayer, to: toLayer, key}]);
     }
 
     async function saveMemoryFromForm() {
@@ -1290,9 +1323,13 @@
         }
         const op = {action: 'save', layer, key, value, kind: memKind.value};
         if (layer === 'working') op.state = memState.value || null;
-        await applyOps([op]);
-        memKey.value = '';
-        memValue.value = '';
+        const ok = (layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
+            memKey.value = '';
+            memValue.value = '';
+        }
     }
 
     async function suggestMemory() {
@@ -1300,25 +1337,32 @@
             alert('Сначала отправьте сообщение, чтобы создать диалог.');
             return;
         }
-        const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory/suggest`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({}),
-        });
-        pendingMemory = data.pending_memory || [];
-        renderPending();
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory/suggest`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({}),
+            });
+            pendingMemory = data.pending_memory || [];
+            renderPending();
+        } catch (err) {
+            alert(`Ошибка генерации предложений памяти: ${err.message}`);
+        }
     }
 
-    function applySuggestion(index) {
+    async function applySuggestion(index) {
         const s = pendingMemory[index];
         if (!s) return;
         const op = {action: 'save', layer: s.layer, key: s.key, value: s.value, kind: s.kind};
         if (s.layer === 'working') op.state = s.state || null;
         else op.tags = s.tags || [];
-        applyOps([op]).then(() => {
+        const ok = (s.layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
             pendingMemory.splice(index, 1);
             renderPending();
-        });
+        }
     }
 
     function rejectSuggestion(index) {
@@ -1521,12 +1565,7 @@
         renderPending();
         messageEl.focus();
         // Долговременная память переживает сброс — перечитаем её с сервера.
-        try {
-            const data = await apiFetch('/memory/longterm');
-            memory.long_term = data.long_term || [];
-            renderMemory();
-        } catch (err) { /* сервер недоступен */
-        }
+        await loadLongTerm();
     }
 
     // === Обработчики ===
@@ -1565,6 +1604,8 @@
             if (restored) {
                 renderChat();
                 updateStats(null, null, null);
+                // Долговременная память доступна и без активного диалога.
+                await loadLongTerm();
                 return;
             }
             sessionId = null;
@@ -1580,6 +1621,8 @@
         renderContext(null);
         renderMemory();
         renderPending();
+        // Показываем долговременную память даже без активного диалога.
+        await loadLongTerm();
     })();
 </script>
 
