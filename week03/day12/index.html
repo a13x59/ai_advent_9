@@ -1,0 +1,1631 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent — DeepSeek</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(145deg, #0b0e14 0%, #1a1f2a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .app-container {
+            max-width: 1280px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 48px;
+            padding: 30px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #f0f3f8;
+            letter-spacing: -0.5px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 .badge {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            padding: 4px 14px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .info-icon {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #718096;
+            font-size: 10px;
+            font-style: normal;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 3px;
+            flex-shrink: 0;
+            vertical-align: middle;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .info-icon:hover,
+        .info-icon:focus {
+            color: #fff;
+            background: rgba(108, 92, 231, 0.5);
+            border-color: #6c5ce7;
+            outline: none;
+        }
+
+        .info-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            max-width: 70vw;
+            background: #1a1f2a;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 10px 12px;
+            color: #cbd5e0;
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.5;
+            letter-spacing: 0;
+            white-space: normal;
+            text-align: left;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+            display: none;
+            z-index: 30;
+        }
+
+        .info-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #1a1f2a;
+        }
+
+        .info-icon:hover .info-tooltip,
+        .info-icon:focus .info-tooltip {
+            display: block;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 28px;
+        }
+
+        /* Левая панель — параметры */
+        .params-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 24px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            align-self: start;
+        }
+
+        .params-panel label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #a0aec0;
+            margin-bottom: 6px;
+            letter-spacing: 0.3px;
+        }
+
+        .params-panel input, .params-panel textarea, .params-panel select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            color: #e2e8f0;
+            font-size: 15px;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .params-panel input:focus, .params-panel textarea:focus, .params-panel select:focus {
+            outline: none;
+            border-color: #6c5ce7;
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+        }
+
+        .params-panel .row2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        /* Свёрнутая по умолчанию группа параметров модели */
+        .params-group {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .params-group summary {
+            cursor: pointer;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e0;
+            user-select: none;
+            list-style: none;
+        }
+
+        .params-group summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .params-group summary::before {
+            content: '▸';
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.2s;
+            color: #6c5ce7;
+        }
+
+        .params-group[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .params-group .group-body {
+            padding: 0 16px 16px;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            color: #cbd5e0;
+            font-size: 13px;
+        }
+
+        .checkbox-row input {
+            width: auto;
+            margin: 0;
+            accent-color: #6c5ce7;
+        }
+
+        .btn-reset {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 40px;
+            color: #a0aec0;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            margin-top: 4px;
+        }
+
+        .btn-reset:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        /* Правая панель — память, чат, ввод и статистика */
+        .chat-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 24px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 140px);
+            min-height: 560px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 6px;
+            margin-bottom: 12px;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #6c5ce7;
+            border-radius: 10px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 18px;
+            align-items: flex-end; /* аватар прижат к нижнему краю сообщения */
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .message.user .avatar {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+        }
+
+        .message.assistant .avatar {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+        }
+
+        .message .bubble {
+            background: rgba(255, 255, 255, 0.07);
+            padding: 12px 18px;
+            border-radius: 18px;
+            max-width: 80%;
+            color: #e2e8f0;
+            font-size: 15px;
+            line-height: 1.6;
+            word-break: break-word;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .message.user .bubble {
+            background: rgba(108, 92, 231, 0.25);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Ввод сообщения — внизу блока чата */
+        .message-input {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            margin-bottom: 14px;
+        }
+
+        .message-input textarea {
+            flex: 1;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            color: #e2e8f0;
+            font-size: 15px;
+            resize: vertical;
+            min-height: 48px;
+            max-height: 160px;
+            transition: all 0.2s;
+        }
+
+        .message-input textarea:focus {
+            outline: none;
+            border-color: #6c5ce7;
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+        }
+
+        .btn-send {
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-size: 17px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.2s;
+            box-shadow: 0 8px 24px rgba(108, 92, 231, 0.3);
+            white-space: nowrap;
+        }
+
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(108, 92, 231, 0.4);
+        }
+
+        .btn-send:active {
+            transform: scale(0.98);
+        }
+
+        /* Статистика — внизу, выровнена по нижнему краю */
+        .stats {
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 16px;
+            padding: 12px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .stats-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .stats-group-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #6c5ce7;
+            font-weight: 600;
+            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stats-row.single {
+            grid-template-columns: 1fr;
+        }
+
+        .stats .stat-item {
+            text-align: center;
+        }
+
+        .stats .stat-item .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+        }
+
+        .stats .stat-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f0f3f8;
+            margin-top: 2px;
+        }
+
+        .stats .stat-item .value.positive {
+            color: #81ecec;
+        }
+
+        .stats .stat-item .value.negative {
+            color: #f56565;
+        }
+
+        .stats .stat-item .value.zero {
+            color: #a0aec0;
+        }
+
+        .stats .stat-item .value small {
+            font-size: 12px;
+            font-weight: 400;
+            color: #a0aec0;
+        }
+
+        /* Панель памяти (три слоя) */
+        .memory-panel {
+            border: 1px solid rgba(162, 155, 254, 0.3);
+            border-radius: 14px;
+            background: rgba(108, 92, 231, 0.08);
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .memory-panel summary {
+            cursor: pointer;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e9e5ff;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .memory-panel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .memory-panel summary::before {
+            content: '▸';
+            transition: transform 0.2s;
+            color: #a29bfe;
+        }
+
+        .memory-panel[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .memory-badge {
+            font-weight: 400;
+            color: #a0aec0;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        .memory-body {
+            padding: 0 14px 14px;
+        }
+
+        .memory-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1.2fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .memory-col {
+            min-width: 0;
+        }
+
+        .memory-col-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #a29bfe;
+            font-weight: 600;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .memory-list {
+            list-style: none;
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+            color: #cbd5e0;
+        }
+
+        .mem-item {
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.22);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            line-height: 1.45;
+        }
+
+        .mem-item b {
+            color: #e9e5ff;
+        }
+
+        .mem-item .mem-kind {
+            display: inline-block;
+            background: rgba(108, 92, 231, 0.3);
+            border-radius: 6px;
+            padding: 0 6px;
+            font-size: 10px;
+            color: #c4bfff;
+            margin-right: 4px;
+        }
+
+        .mem-item .mem-state {
+            display: inline-block;
+            border-radius: 6px;
+            padding: 0 6px;
+            font-size: 10px;
+            margin-left: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #81ecec;
+        }
+
+        .mem-item .mem-actions {
+            margin-top: 4px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .mem-btn {
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            background: rgba(108, 92, 231, 0.2);
+            color: #d6d2ff;
+            border-radius: 8px;
+            font-size: 11px;
+            padding: 3px 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .mem-btn:hover {
+            background: rgba(108, 92, 231, 0.45);
+        }
+
+        .mem-btn.del {
+            color: #f6a5a5;
+            border-color: rgba(245, 101, 101, 0.4);
+            background: rgba(245, 101, 101, 0.15);
+        }
+
+        .mem-btn.del:hover {
+            background: rgba(245, 101, 101, 0.35);
+        }
+
+        .mem-empty {
+            color: #718096;
+            font-style: italic;
+        }
+
+        /* Форма явного сохранения в память */
+        .memory-save {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .memory-save input, .memory-save select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .memory-save input:focus, .memory-save select:focus {
+            outline: none;
+            border-color: #6c5ce7;
+        }
+
+        .memory-save .mem-key {
+            flex: 1 1 110px;
+        }
+
+        .memory-save .mem-value {
+            flex: 2 1 160px;
+        }
+
+        .btn-mem-save, .btn-suggest {
+            padding: 9px 14px;
+            background: rgba(108, 92, 231, 0.35);
+            border: 1px solid rgba(162, 155, 254, 0.5);
+            border-radius: 10px;
+            color: #e9e5ff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .btn-mem-save:hover, .btn-suggest:hover {
+            background: rgba(108, 92, 231, 0.55);
+        }
+
+        .btn-suggest {
+            margin-bottom: 8px;
+            background: rgba(0, 184, 148, 0.2);
+            border-color: rgba(0, 206, 201, 0.4);
+            color: #c8f7f5;
+        }
+
+        .btn-suggest:hover {
+            background: rgba(0, 184, 148, 0.4);
+        }
+
+        /* Очередь предложений памяти */
+        .pending {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .pending-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #00cec9;
+            font-weight: 600;
+        }
+
+        .pending-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 184, 148, 0.08);
+            border: 1px solid rgba(0, 206, 201, 0.25);
+            border-radius: 10px;
+            font-size: 12px;
+            color: #cbd5e0;
+        }
+
+        .pending-item .p-layer {
+            text-transform: uppercase;
+            font-size: 10px;
+            font-weight: 700;
+            color: #00cec9;
+            letter-spacing: 0.5px;
+            flex-shrink: 0;
+        }
+
+        .pending-item .p-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .pending-item b {
+            color: #e9e5ff;
+        }
+
+        /* Сводка по контексту */
+        .context-summary {
+            display: none;
+            background: linear-gradient(135deg, rgba(108, 92, 231, 0.18), rgba(162, 155, 254, 0.10));
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 14px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            color: #cbd5e0;
+            font-size: 13px;
+            line-height: 1.5;
+            flex-shrink: 0;
+        }
+
+        .context-summary .summary-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #e9e5ff;
+            margin-bottom: 4px;
+        }
+
+        .context-summary .summary-head .icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .context-summary .meta {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .context-summary .meta b {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        .context-summary.flash {
+            animation: contextFlash 1s ease;
+        }
+
+        @keyframes contextFlash {
+            0% {
+                box-shadow: 0 0 0 0 rgba(162, 155, 254, 0.7);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 0 0 8px rgba(162, 155, 254, 0);
+                transform: scale(1.02);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(162, 155, 254, 0);
+                transform: scale(1);
+            }
+        }
+
+        /* Управление ветками (стратегия branching) */
+        .branch-controls {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .branch-controls.visible {
+            display: flex;
+        }
+
+        .branch-controls .branch-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .branch-controls .branch-row select {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .btn-branch {
+            flex-shrink: 0;
+            padding: 10px 14px;
+            background: rgba(108, 92, 231, 0.25);
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            border-radius: 12px;
+            color: #d6d2ff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .btn-branch:hover {
+            background: rgba(108, 92, 231, 0.4);
+            color: #fff;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 800px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .app-container {
+                padding: 16px;
+            }
+
+            .chat-panel {
+                height: auto;
+                min-height: 0;
+            }
+
+            .memory-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        select option {
+            background: #1a1f2a;
+        }
+
+        ::-webkit-input-placeholder {
+            color: #4a5568;
+        }
+
+        ::-moz-placeholder {
+            color: #4a5568;
+        }
+
+        :-ms-input-placeholder {
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h1>
+        🤖 AI Agent
+        <span class="badge">DeepSeek</span>
+        <span class="badge" style="background: linear-gradient(135deg,#00b894,#00cec9)">Memory Layers</span>
+    </h1>
+    <div class="main-grid">
+        <!-- Левая панель: настройки -->
+        <div class="params-panel">
+            <label for="model">Модель *</label>
+            <select id="model">
+                <option value="deepseek-chat">deepseek-chat</option>
+                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                <option value="deepseek-coder">deepseek-coder</option>
+            </select>
+
+            <!-- Группа параметров модели — свёрнута по умолчанию -->
+            <details class="params-group">
+                <summary>⚙ Параметры модели</summary>
+                <div class="group-body">
+                    <div class="row2">
+                        <div>
+                            <label for="temperature">Температура</label>
+                            <input type="number" id="temperature" value="1.0" step="0.1" min="0" max="2">
+                        </div>
+                        <div>
+                            <label for="top_p">top_p</label>
+                            <input type="number" id="top_p" value="1.0" step="0.05" min="0" max="1">
+                        </div>
+                        <div>
+                            <label for="top_k">top_k</label>
+                            <input type="number" id="top_k" value="0" step="1" min="0">
+                        </div>
+                        <div>
+                            <label for="max_tokens">max_tokens</label>
+                            <input type="number" id="max_tokens" value="4096" step="1" min="1" max="8192">
+                        </div>
+                    </div>
+                    <label for="stop">Стоп-последовательность (через запятую)</label>
+                    <input type="text" id="stop" placeholder="например: stop1, stop2">
+                </div>
+            </details>
+
+            <label for="strategy">Стратегия контекста</label>
+            <select id="strategy">
+                <option value="sliding_window">Sliding Window — окно последних N</option>
+                <option value="sticky_facts">Sticky Facts — факты + окно N</option>
+                <option value="branching">Branching — ветки диалога</option>
+            </select>
+
+            <label for="window_size">Размер окна N</label>
+            <input type="number" id="window_size" value="5" step="1" min="1">
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="auto_suggest">
+                Генерировать предложения памяти
+            </label>
+
+            <div class="branch-controls" id="branchControls">
+                <div class="branch-row">
+                    <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
+                </div>
+                <div class="branch-row">
+                    <select id="branchSelect" title="Активная ветка"></select>
+                </div>
+            </div>
+
+            <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
+        </div>
+
+        <!-- Правая панель: память + чат + ввод + статистика -->
+        <div class="chat-panel">
+            <details class="memory-panel" id="memoryPanel">
+                <summary>🧠 Память <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
+                </summary>
+                <div class="memory-body">
+                    <div class="memory-grid">
+                        <div class="memory-col">
+                            <div class="memory-col-title">💬 Краткосрочная</div>
+                            <div class="memory-list" id="memoryShort"></div>
+                        </div>
+                        <div class="memory-col">
+                            <div class="memory-col-title">📌 Рабочая (задача)</div>
+                            <div class="memory-list" id="memoryWorking"></div>
+                        </div>
+                        <div class="memory-col">
+                            <div class="memory-col-title">🗄 Долговременная</div>
+                            <div class="memory-list" id="memoryLongTerm"></div>
+                        </div>
+                    </div>
+                    <div class="memory-save">
+                        <input class="mem-key" id="memKey" placeholder="ключ (напр. цель)">
+                        <input class="mem-value" id="memValue" placeholder="значение">
+                        <select id="memLayer">
+                            <option value="working">→ рабочая</option>
+                            <option value="long_term">→ долговременная</option>
+                        </select>
+                        <select id="memKind"></select>
+                        <select id="memState"></select>
+                        <button class="btn-mem-save" id="memSaveBtn">💾 Сохранить</button>
+                    </div>
+                    <button class="btn-suggest" id="suggestBtn">✨ Предложить память (модель)</button>
+                    <div class="pending" id="pendingList"></div>
+                </div>
+            </details>
+
+            <div class="context-summary" id="contextSummary"></div>
+
+            <div class="chat-messages" id="chatMessages"></div>
+
+            <div class="message-input">
+                <textarea id="message" placeholder="Введите ваш запрос..." rows="2"></textarea>
+                <button class="btn-send" id="sendBtn">➤ Отправить</button>
+            </div>
+
+            <div class="stats" id="statsPanel">
+                <div class="stats-group">
+                    <div class="stats-group-title">Текущий запрос</div>
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="label">📤 Запрос
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всего, что отправлено модели (краткосрочная история + рабочая + долговременная память).</span></i>
+                            </div>
+                            <div class="value" id="statRequestTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">🤖 Ответ
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены, которые модель сгенерировала в ответе.</span></i>
+                            </div>
+                            <div class="value" id="statResponseTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">🔢 Всего
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сумма токенов за этот запрос: вход + выход.</span></i>
+                            </div>
+                            <div class="value" id="statTotalTokens">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-group">
+                    <div class="stats-group-title">Всего</div>
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="label">⏱ Время
+                                <i class="info-icon" tabindex="0">i<span
+                                        class="info-tooltip">Время обработки запроса.</span></i>
+                            </div>
+                            <div class="value" id="statDuration">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">📚 История
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всей краткосрочной истории (активная ветка).</span></i>
+                            </div>
+                            <div class="value" id="statHistoryTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">💲 Стоимость
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Оценка стоимости запроса, включая генерацию предложений памяти.</span></i>
+                            </div>
+                            <div class="value" id="statCost">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // === Конфигурация ===
+    const API_BASE = 'http://localhost:8000';
+    const ENDPOINT = '/agent';
+
+    // === Элементы DOM ===
+    const messageEl = document.getElementById('message');
+    const modelEl = document.getElementById('model');
+    const strategyEl = document.getElementById('strategy');
+    const windowSizeEl = document.getElementById('window_size');
+    const temperatureEl = document.getElementById('temperature');
+    const topKEl = document.getElementById('top_k');
+    const topPEl = document.getElementById('top_p');
+    const stopEl = document.getElementById('stop');
+    const maxTokensEl = document.getElementById('max_tokens');
+    const autoSuggestEl = document.getElementById('auto_suggest');
+    const sendBtn = document.getElementById('sendBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const chatMessages = document.getElementById('chatMessages');
+    const statDuration = document.getElementById('statDuration');
+    const statRequestTokens = document.getElementById('statRequestTokens');
+    const statHistoryTokens = document.getElementById('statHistoryTokens');
+    const statResponseTokens = document.getElementById('statResponseTokens');
+    const statTotalTokens = document.getElementById('statTotalTokens');
+    const statCost = document.getElementById('statCost');
+    const contextSummary = document.getElementById('contextSummary');
+    const branchControls = document.getElementById('branchControls');
+    const branchSelect = document.getElementById('branchSelect');
+    const createBranchBtn = document.getElementById('createBranchBtn');
+    // Память
+    const memoryBadge = document.getElementById('memoryBadge');
+    const memoryShort = document.getElementById('memoryShort');
+    const memoryWorking = document.getElementById('memoryWorking');
+    const memoryLongTerm = document.getElementById('memoryLongTerm');
+    const memKey = document.getElementById('memKey');
+    const memValue = document.getElementById('memValue');
+    const memLayer = document.getElementById('memLayer');
+    const memKind = document.getElementById('memKind');
+    const memState = document.getElementById('memState');
+    const memSaveBtn = document.getElementById('memSaveBtn');
+    const suggestBtn = document.getElementById('suggestBtn');
+    const pendingList = document.getElementById('pendingList');
+
+    const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
+    const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
+    const LONG_TERM_KINDS = ['profile', 'decision', 'knowledge', 'preference', 'agreement', 'fact'];
+    const KIND_LABELS = {
+        goal: 'цель', constraint: 'ограничение', todo: 'задача', result: 'результат',
+        context: 'контекст', note: 'заметка', profile: 'профиль', decision: 'решение',
+        knowledge: 'знание', preference: 'предпочтение', agreement: 'договорённость', fact: 'факт'
+    };
+    const STATE_LABELS = {pending: 'ожидает', in_progress: 'в работе', done: 'готово', blocked: 'заблокировано'};
+
+    // === Состояние ===
+    let history = [];
+    let branches = [];
+    let currentBranchId = null;
+    let sessionId = localStorage.getItem('agentSessionId') || null;
+    let memory = {working: [], long_term: []};
+    let pendingMemory = [];
+
+    // === Вспомогательные ===
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
+    function escapeAttr(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function formatNumber(n) {
+        return Number(n || 0).toLocaleString('ru-RU');
+    }
+
+    async function apiFetch(url, options) {
+        const res = await fetch(`${API_BASE}${url}`, options);
+        if (!res.ok) {
+            let detail = 'Ошибка сервера';
+            try {
+                detail = (await res.json()).detail || detail;
+            } catch (e) {
+            }
+            throw new Error(detail);
+        }
+        return res.json();
+    }
+
+    // === Отображение чата ===
+    function renderChat() {
+        chatMessages.innerHTML = '';
+        history.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = `message ${msg.role}`;
+            div.innerHTML = `
+        <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
+        <div class="bubble">${escapeHtml(msg.content)}</div>
+      `;
+            chatMessages.appendChild(div);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function updateStats(duration, usage, cost) {
+        statDuration.textContent = (duration != null) ? `${duration}s` : '—';
+        statRequestTokens.textContent = (usage && usage.prompt_tokens != null) ? `${usage.prompt_tokens}` : '—';
+        statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
+        statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
+        statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
+        statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
+    }
+
+    // === Отображение памяти (три слоя) ===
+    function renderMemory() {
+        const working = memory.working || [];
+        const longTerm = memory.long_term || [];
+        memoryBadge.textContent = `рабочая ${working.length} · долговременная ${longTerm.length}`;
+        memoryShort.innerHTML = `<div class="mem-empty">Сообщений в диалоге: ${formatNumber(history.length)}</div>`;
+        memoryWorking.innerHTML = working.length
+            ? working.map(renderMemItem).join('')
+            : '<div class="mem-empty">Нет записей. Сохраните данные текущей задачи.</div>';
+        memoryLongTerm.innerHTML = longTerm.length
+            ? longTerm.map(renderMemItem).join('')
+            : '<div class="mem-empty">Нет записей. Сохраните профиль/решения/знания.</div>';
+    }
+
+    function renderMemItem(e) {
+        const isWorking = e.state !== undefined && Object.prototype.hasOwnProperty.call(e, 'state');
+        const kind = KIND_LABELS[e.kind] || e.kind;
+        const layer = isWorking ? 'working' : 'long_term';
+        const state = e.state ? `<span class="mem-state">${escapeHtml(STATE_LABELS[e.state] || e.state)}</span>` : '';
+        const moveTo = isWorking ? 'long_term' : 'working';
+        const moveLabel = isWorking ? '→ долговр.' : '→ рабочая';
+        return `
+      <li class="mem-item">
+        <span class="mem-kind">${escapeHtml(kind)}</span><b>${escapeHtml(e.key)}</b>: ${escapeHtml(e.value)}${state}
+        <div class="mem-actions">
+          <button class="mem-btn" data-action="move" data-layer="${escapeAttr(layer)}" data-to="${escapeAttr(moveTo)}" data-key="${escapeAttr(e.key)}">${moveLabel}</button>
+          <button class="mem-btn del" data-action="delete" data-layer="${escapeAttr(layer)}" data-key="${escapeAttr(e.key)}">✕</button>
+        </div>
+      </li>`;
+    }
+
+    function renderPending() {
+        if (!pendingMemory.length) {
+            pendingList.innerHTML = '';
+            return;
+        }
+        const items = pendingMemory.map((p, i) => {
+            const kind = KIND_LABELS[p.kind] || p.kind;
+            const state = p.state ? ` · ${escapeHtml(STATE_LABELS[p.state] || p.state)}` : '';
+            return `
+        <div class="pending-item">
+          <span class="p-layer">${p.layer === 'working' ? 'рабочая' : 'долговр.'}</span>
+          <span class="p-text"><b>${escapeHtml(p.key)}</b>: ${escapeHtml(p.value)} <span class="mem-kind">${escapeHtml(kind)}</span>${state}</span>
+          <button class="mem-btn" data-action="approve" data-index="${i}">✅</button>
+          <button class="mem-btn del" data-action="reject" data-index="${i}">✕</button>
+        </div>`;
+        }).join('');
+        pendingList.innerHTML = `<div class="pending-title">Предложения к подтверждению</div>${items}`;
+    }
+
+    // === Форма сохранения в память ===
+    function updateMemoryForm() {
+        const layer = memLayer.value;
+        const kinds = layer === 'working' ? WORKING_KINDS : LONG_TERM_KINDS;
+        memKind.innerHTML = kinds.map(k => `<option value="${k}">${KIND_LABELS[k]}</option>`).join('');
+        memState.style.display = layer === 'working' ? 'inline-block' : 'none';
+        if (layer === 'working') {
+            memState.innerHTML = `<option value="">— состояние —</option>` +
+                WORKING_STATES.map(s => `<option value="${s}">${STATE_LABELS[s]}</option>`).join('');
+        }
+    }
+
+    // === Сводка по контексту ===
+    function updateBranchControlsVisibility() {
+        branchControls.classList.toggle('visible', strategyEl.value === 'branching');
+    }
+
+    function renderBranches() {
+        if (!branches.length) {
+            branchSelect.innerHTML = '<option value="">— нет веток —</option>';
+            return;
+        }
+        branchSelect.innerHTML = branches.map(b => {
+            const label = `${b.name} (${b.message_count} сообщ.)`;
+            const selected = b.branch_id === currentBranchId ? ' selected' : '';
+            return `<option value="${escapeAttr(b.branch_id)}"${selected}>${escapeHtml(label)}</option>`;
+        }).join('');
+    }
+
+    function renderContext(context, flash) {
+        if (!context) {
+            contextSummary.style.display = 'none';
+            contextSummary.innerHTML = '';
+            return;
+        }
+        contextSummary.style.display = 'block';
+        const strategy = context.strategy;
+        const total = context.total_messages || 0;
+        const sent = context.sent_messages != null ? context.sent_messages : 0;
+        const discarded = context.discarded_messages != null ? context.discarded_messages : 0;
+        const wm = context.working_count != null ? context.working_count : (memory.working || []).length;
+        const lm = context.long_term_count != null ? context.long_term_count : (memory.long_term || []).length;
+        const memLine = `Память: рабочая <b>${formatNumber(wm)}</b> · долговременная <b>${formatNumber(lm)}</b>`;
+        let html;
+
+        if (strategy === 'sticky_facts') {
+            html =
+                `<div class="summary-head"><span class="icon">🧠</span> Sticky Facts · факты из долговременной памяти</div>` +
+                `<div class="meta">${memLine} · отправлено: факты + последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+        } else if (strategy === 'branching') {
+            const current = branches.find(b => b.branch_id === currentBranchId) || {};
+            html =
+                `<div class="summary-head"><span class="icon">🔀</span> Branching · ветка «${escapeHtml(current.name || '—')}»</div>` +
+                `<div class="meta">${memLine} · сообщений: <b>${formatNumber(total)}</b> · веток: <b>${formatNumber(branches.length)}</b> · checkpoint: <b>${formatNumber(current.checkpoint || 0)}</b></div>`;
+        } else {
+            html =
+                `<div class="summary-head"><span class="icon">🪟</span> Sliding Window · окно N = ${formatNumber(context.window_size || 0)}</div>` +
+                `<div class="meta">${memLine} · отправлено: последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+        }
+
+        contextSummary.innerHTML = html;
+        if (flash) {
+            contextSummary.classList.remove('flash');
+            void contextSummary.offsetWidth;
+            contextSummary.classList.add('flash');
+        }
+    }
+
+    // === Операции над памятью ===
+    // Операции, привязанные к сессии (рабочая память и переносы между слоями).
+    async function applyOps(ops) {
+        if (!sessionId) {
+            alert('Для рабочей памяти нужен активный диалог (создайте диалог, отправив сообщение).');
+            return false;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops}),
+            });
+            memory = data.memory;
+            renderMemory();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с памятью: ${err.message}`);
+            return false;
+        }
+    }
+
+    // Долговременная память глобальная — не зависит от диалога/сессии.
+    async function applyLongTermOps(ops) {
+        try {
+            const data = await apiFetch(`/memory/longterm`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops}),
+            });
+            memory.long_term = data.long_term || [];
+            renderMemory();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с долговременной памятью: ${err.message}`);
+            return false;
+        }
+    }
+
+    async function loadLongTerm() {
+        try {
+            const data = await apiFetch('/memory/longterm');
+            memory.long_term = data.long_term || [];
+            renderMemory();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    function deleteMemory(layer, key) {
+        if (layer === 'long_term') return applyLongTermOps([{action: 'delete', layer, key}]);
+        return applyOps([{action: 'delete', layer, key}]);
+    }
+
+    function moveMemory(key, fromLayer, toLayer) {
+        // Перенос всегда затрагивает рабочую память (источник или цель) — нужна сессия.
+        return applyOps([{action: 'move', from: fromLayer, to: toLayer, key}]);
+    }
+
+    async function saveMemoryFromForm() {
+        const key = memKey.value.trim();
+        const value = memValue.value.trim();
+        const layer = memLayer.value;
+        if (!key || !value) {
+            alert('Укажите ключ и значение');
+            return;
+        }
+        const op = {action: 'save', layer, key, value, kind: memKind.value};
+        if (layer === 'working') op.state = memState.value || null;
+        const ok = (layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
+            memKey.value = '';
+            memValue.value = '';
+        }
+    }
+
+    async function suggestMemory() {
+        if (!sessionId) {
+            alert('Сначала отправьте сообщение, чтобы создать диалог.');
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory/suggest`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({}),
+            });
+            pendingMemory = data.pending_memory || [];
+            renderPending();
+        } catch (err) {
+            alert(`Ошибка генерации предложений памяти: ${err.message}`);
+        }
+    }
+
+    async function applySuggestion(index) {
+        const s = pendingMemory[index];
+        if (!s) return;
+        const op = {action: 'save', layer: s.layer, key: s.key, value: s.value, kind: s.kind};
+        if (s.layer === 'working') op.state = s.state || null;
+        else op.tags = s.tags || [];
+        const ok = (s.layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
+            pendingMemory.splice(index, 1);
+            renderPending();
+        }
+    }
+
+    function rejectSuggestion(index) {
+        pendingMemory.splice(index, 1);
+        renderPending();
+    }
+
+    // === Отправка запроса ===
+    async function sendRequest() {
+        const userMessage = messageEl.value.trim();
+        if (!userMessage) {
+            alert('Введите сообщение');
+            return;
+        }
+        const model = modelEl.value;
+        if (!model) {
+            alert('Выберите модель');
+            return;
+        }
+
+        const strategy = strategyEl.value;
+        const windowSize = parseInt(windowSizeEl.value) || 5;
+
+        history.push({role: 'user', content: userMessage});
+        messageEl.value = '';
+        renderChat();
+
+        const temperature = parseFloat(temperatureEl.value) || 1.0;
+        const topK = parseInt(topKEl.value) || 0;
+        const topP = parseFloat(topPEl.value) || 1.0;
+        const maxTokens = parseInt(maxTokensEl.value) || 4096;
+        const stopRaw = stopEl.value.trim();
+        let stop = null;
+        if (stopRaw) {
+            stop = stopRaw.split(',').map(s => s.trim()).filter(Boolean);
+            if (stop.length === 1) stop = stop[0];
+        }
+
+        const payload = {
+            messages: history,
+            model: model,
+            strategy: strategy,
+            window_size: windowSize,
+            temperature: temperature,
+            top_k: topK,
+            top_p: topP,
+            max_tokens: maxTokens,
+            auto_suggest_memory: autoSuggestEl.checked,
+        };
+        if (sessionId) payload.session_id = sessionId;
+        if (stop) payload.stop = stop;
+
+        try {
+            const data = await apiFetch(ENDPOINT, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+
+            if (data.session_id) {
+                sessionId = data.session_id;
+                localStorage.setItem('agentSessionId', sessionId);
+            }
+            history.push({role: 'assistant', content: data.response});
+            renderChat();
+
+            memory = data.memory || {working: [], long_term: []};
+            pendingMemory = data.pending_memory || [];
+            renderMemory();
+            renderPending();
+
+            if (data.context && data.context.branches) {
+                branches = data.context.branches;
+                currentBranchId = data.context.branch ? data.context.branch.id : currentBranchId;
+                renderBranches();
+            }
+
+            updateStats(data.duration, data.usage, data.cost);
+            renderContext(data.context, true);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+            history.pop();
+            renderChat();
+        }
+    }
+
+    // === Управление ветками (strategies branching) ===
+    async function createBranches() {
+        if (!sessionId) {
+            alert('Сначала отправьте хотя бы одно сообщение.');
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/branch`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({}),
+            });
+            currentBranchId = data.current_branch;
+            branches = data.branches || [];
+            if (data.messages) {
+                history = data.messages;
+                renderChat();
+            }
+            renderBranches();
+            renderContext({
+                strategy: 'branching', total_messages: history.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: history.length, discarded_messages: 0,
+                working_count: (memory.working || []).length, long_term_count: (memory.long_term || []).length,
+            }, true);
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    }
+
+    async function switchBranch(branchId) {
+        if (!sessionId || !branchId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/switch`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({branch_id: branchId}),
+            });
+            currentBranchId = data.current_branch;
+            branches = data.branches || [];
+            if (data.messages) {
+                history = data.messages;
+                renderChat();
+            }
+            renderBranches();
+            renderMemory();
+            renderContext({
+                strategy: 'branching', total_messages: history.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: history.length, discarded_messages: 0,
+                working_count: (memory.working || []).length, long_term_count: (memory.long_term || []).length,
+            }, true);
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    }
+
+    // === Восстановление сессии ===
+    async function restoreSession(savedId) {
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(savedId)}`);
+            if (data.messages && data.messages.length) {
+                history = data.messages;
+                sessionId = data.session_id || savedId;
+                branches = data.branches || [];
+                currentBranchId = data.current_branch || null;
+                memory = {working: data.working || [], long_term: data.long_term || []};
+                pendingMemory = [];
+                if (data.strategy) strategyEl.value = data.strategy;
+                if (data.window_size != null) windowSizeEl.value = data.window_size;
+                const win = data.window_size || 5;
+                renderBranches();
+                updateBranchControlsVisibility();
+                renderMemory();
+                renderPending();
+                renderContext({
+                    strategy: data.strategy, total_messages: history.length, window_size: win,
+                    working_count: memory.working.length, long_term_count: memory.long_term.length,
+                    branch: {id: currentBranchId}, branches: branches,
+                    sent_messages: data.strategy === 'branching' ? history.length : Math.min(history.length, win),
+                    discarded_messages: data.strategy === 'branching' ? 0 : Math.max(0, history.length - win),
+                }, false);
+                return true;
+            }
+            return false;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    // === Новый диалог ===
+    async function resetChat() {
+        if (sessionId) {
+            try {
+                await apiFetch(`/agent/${encodeURIComponent(sessionId)}`, {method: 'DELETE'});
+            } catch (err) { /* сервер недоступен — чистим локально */
+            }
+        }
+        sessionId = null;
+        localStorage.removeItem('agentSessionId');
+        history = [];
+        branches = [];
+        currentBranchId = null;
+        memory = {working: [], long_term: memory.long_term || []};
+        pendingMemory = [];
+        history.push({
+            role: 'assistant',
+            content: '👋 Привет! Я AI-агент на базе DeepSeek с тремя слоями памяти. Напиши что-нибудь!'
+        });
+        renderChat();
+        renderBranches();
+        updateBranchControlsVisibility();
+        updateStats(null, null, null);
+        renderContext(null);
+        renderMemory();
+        renderPending();
+        messageEl.focus();
+        // Долговременная память переживает сброс — перечитаем её с сервера.
+        await loadLongTerm();
+    }
+
+    // === Обработчики ===
+    sendBtn.addEventListener('click', sendRequest);
+    resetBtn.addEventListener('click', resetChat);
+    createBranchBtn.addEventListener('click', createBranches);
+    branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
+    strategyEl.addEventListener('change', updateBranchControlsVisibility);
+    memLayer.addEventListener('change', updateMemoryForm);
+    memSaveBtn.addEventListener('click', saveMemoryFromForm);
+    suggestBtn.addEventListener('click', suggestMemory);
+    messageEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendRequest();
+        }
+    });
+
+    // Делегирование кликов по кнопкам памяти
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-action]');
+        if (!el) return;
+        const action = el.dataset.action;
+        if (action === 'delete') deleteMemory(el.dataset.layer, el.dataset.key);
+        else if (action === 'move') moveMemory(el.dataset.key, el.dataset.layer, el.dataset.to);
+        else if (action === 'approve') applySuggestion(parseInt(el.dataset.index, 10));
+        else if (action === 'reject') rejectSuggestion(parseInt(el.dataset.index, 10));
+    });
+
+    // === Инициализация ===
+    (async function init() {
+        updateBranchControlsVisibility();
+        updateMemoryForm();
+        if (sessionId) {
+            const restored = await restoreSession(sessionId);
+            if (restored) {
+                renderChat();
+                updateStats(null, null, null);
+                // Долговременная память доступна и без активного диалога.
+                await loadLongTerm();
+                return;
+            }
+            sessionId = null;
+            localStorage.removeItem('agentSessionId');
+        }
+        history.push({
+            role: 'assistant',
+            content: '👋 Привет! Я AI-агент на базе DeepSeek с тремя слоями памяти. Напиши что-нибудь!'
+        });
+        renderChat();
+        renderBranches();
+        updateStats(null, null, null);
+        renderContext(null);
+        renderMemory();
+        renderPending();
+        // Показываем долговременную память даже без активного диалога.
+        await loadLongTerm();
+    })();
+</script>
+
+</body>
+</html>
