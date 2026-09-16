@@ -68,6 +68,9 @@ class HistoryStorage:
         self._working: Dict[str, Dict[str, dict]] = {}
         # Долговременная память (глобальная): key -> entry
         self._long_term: Dict[str, dict] = {}
+        # Профили пользователя (персонализация): profile_id -> entry
+        self._profiles: Dict[str, dict] = {}
+        self._active_profile_id: Optional[str] = None
         self._init_db()
         self.load_all_history()
 
@@ -86,6 +89,7 @@ class HistoryStorage:
                         current_branch TEXT NOT NULL,
                         strategy       TEXT NOT NULL DEFAULT 'sliding_window',
                         window_size    INTEGER NOT NULL DEFAULT 10,
+                        profile_id     TEXT,
                         created_at     TEXT NOT NULL,
                         updated_at     TEXT NOT NULL
                     )
@@ -129,12 +133,38 @@ class HistoryStorage:
                     CREATE TABLE IF NOT EXISTS long_term_memory (
                         entry_id   TEXT PRIMARY KEY,
                         key        TEXT NOT NULL UNIQUE,
+                        profile_id TEXT,
                         value      TEXT NOT NULL,
                         kind       TEXT NOT NULL DEFAULT 'fact',
                         tags       TEXT NOT NULL DEFAULT '[]',
                         importance INTEGER NOT NULL DEFAULT 0,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                # Миграция для уже существующих БД (добавляем столбец profile_id,
+                # если таблицы были созданы прежней версией схемы).
+                if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}:
+                    conn.execute("ALTER TABLE conversations ADD COLUMN profile_id TEXT")
+                if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(long_term_memory)")}:
+                    conn.execute("ALTER TABLE long_term_memory ADD COLUMN profile_id TEXT")
+                # Профиль пользователя — персонализация поверх памяти:
+                # явное описание предпочтений (стиль, формат, ограничения),
+                # которое подключается к каждому запросу к модели.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        profile_id   TEXT PRIMARY KEY,
+                        name         TEXT NOT NULL UNIQUE,
+                        display_name TEXT NOT NULL DEFAULT '',
+                        style        TEXT NOT NULL DEFAULT '',
+                        format       TEXT NOT NULL DEFAULT '',
+                        constraints  TEXT NOT NULL DEFAULT '',
+                        notes        TEXT NOT NULL DEFAULT '',
+                        is_active    INTEGER NOT NULL DEFAULT 0,
+                        created_at   TEXT NOT NULL,
+                        updated_at   TEXT NOT NULL
                     )
                     """
                 )
@@ -162,7 +192,7 @@ class HistoryStorage:
         with self._lock:
             with closing(self._connect()) as conn:
                 session_rows = conn.execute(
-                    "SELECT session_id, current_branch, strategy, window_size FROM conversations"
+                    "SELECT session_id, current_branch, strategy, window_size, profile_id FROM conversations"
                 ).fetchall()
                 branch_rows = conn.execute(
                     "SELECT branch_id, session_id, name, messages, checkpoint FROM branches"
@@ -172,8 +202,12 @@ class HistoryStorage:
                     "created_at, updated_at FROM working_memory"
                 ).fetchall()
                 long_term_rows = conn.execute(
-                    "SELECT entry_id, key, value, kind, tags, importance, "
+                    "SELECT entry_id, key, profile_id, value, kind, tags, importance, "
                     "created_at, updated_at FROM long_term_memory"
+                ).fetchall()
+                profile_rows = conn.execute(
+                    "SELECT profile_id, name, display_name, style, format, constraints, notes, "
+                    "is_active, created_at, updated_at FROM user_profiles"
                 ).fetchall()
 
             self._sessions = {}
@@ -183,6 +217,7 @@ class HistoryStorage:
                     "current_branch": row["current_branch"],
                     "strategy": row["strategy"],
                     "window_size": row["window_size"],
+                    "profile_id": row["profile_id"],
                     "branches": {},
                 }
             for row in branch_rows:
@@ -215,6 +250,7 @@ class HistoryStorage:
                 self._long_term[row["key"]] = {
                     "entry_id": row["entry_id"],
                     "key": row["key"],
+                    "profile_id": row["profile_id"],
                     "value": row["value"],
                     "kind": row["kind"],
                     "tags": json.loads(row["tags"] or "[]"),
@@ -223,13 +259,33 @@ class HistoryStorage:
                     "updated_at": row["updated_at"],
                 }
 
+            self._profiles = {}
+            self._active_profile_id = None
+            for row in profile_rows:
+                profile = {
+                    "profile_id": row["profile_id"],
+                    "name": row["name"],
+                    "display_name": row["display_name"],
+                    "style": row["style"],
+                    "format": row["format"],
+                    "constraints": row["constraints"],
+                    "notes": row["notes"],
+                    "is_active": bool(row["is_active"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                self._profiles[row["profile_id"]] = profile
+                if profile["is_active"]:
+                    self._active_profile_id = row["profile_id"]
+
         logger.info(
             "Память загружена: сессий — %d, веток — %d, рабочая — %d записей, "
-            "долговременная — %d записей",
+            "долговременная — %d записей, профилей — %d",
             len(self._sessions),
             len(self._branch_index),
             sum(len(v) for v in self._working.values()),
             len(self._long_term),
+            len(self._profiles),
         )
         return len(self._sessions)
 
@@ -245,6 +301,7 @@ class HistoryStorage:
                 "current_branch": session["current_branch"],
                 "strategy": session["strategy"],
                 "window_size": session["window_size"],
+                "profile_id": session.get("profile_id"),
             }
 
     def create_session(
@@ -254,6 +311,7 @@ class HistoryStorage:
         window_size: int = 10,
         messages: Optional[List[dict]] = None,
         branch_name: str = "main",
+        profile_id: Optional[str] = None,
     ) -> None:
         now = _now()
         branch_id = uuid.uuid4().hex
@@ -263,6 +321,7 @@ class HistoryStorage:
                 "current_branch": branch_id,
                 "strategy": strategy,
                 "window_size": window_size,
+                "profile_id": profile_id,
                 "branches": {
                     branch_id: {
                         "name": branch_name,
@@ -276,10 +335,10 @@ class HistoryStorage:
                 conn.execute(
                     """
                     INSERT INTO conversations
-                        (session_id, current_branch, strategy, window_size, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (session_id, current_branch, strategy, window_size, profile_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (session_id, branch_id, strategy, window_size, now, now),
+                    (session_id, branch_id, strategy, window_size, profile_id, now, now),
                 )
                 conn.execute(
                     """
@@ -316,6 +375,29 @@ class HistoryStorage:
         with self._lock:
             session = self._sessions.get(session_id)
             return session["current_branch"] if session else None
+
+    # ------------------------------------------------------------------
+    # Связь «профиль ↔ сессия»
+    # ------------------------------------------------------------------
+    def get_session_profile(self, session_id: str) -> Optional[str]:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            return session.get("profile_id") if session else None
+
+    def set_session_profile(self, session_id: str, profile_id: Optional[str]) -> bool:
+        now = _now()
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return False
+            session["profile_id"] = profile_id
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    "UPDATE conversations SET profile_id = ?, updated_at = ? WHERE session_id = ?",
+                    (profile_id, now, session_id),
+                )
+                conn.commit()
+            return True
 
     # ------------------------------------------------------------------
     # Сообщения (краткосрочная память — активная ветка)
@@ -502,6 +584,20 @@ class HistoryStorage:
         with self._lock:
             return [dict(e) for e in self._long_term.values()]
 
+    def load_long_term_for_profile(self, profile_id: Optional[str]) -> List[dict]:
+        """Записи долговременной памяти, видимые профилю.
+
+        Видны общие записи (без привязки, profile_id = NULL) плюс записи,
+        привязанные к этому профилю. Если profile_id is None — только общие.
+        """
+        with self._lock:
+            result = []
+            for e in self._long_term.values():
+                owner = e.get("profile_id") or None
+                if owner is None or (profile_id is not None and owner == profile_id):
+                    result.append(dict(e))
+            return result
+
     def save_long_term_entry(self, entry: dict) -> dict:
         now = _now()
         key = entry["key"]
@@ -518,9 +614,15 @@ class HistoryStorage:
             existing = self._long_term.get(key)
             entry_id = existing["entry_id"] if existing else uuid.uuid4().hex
             created_at = existing["created_at"] if existing else now
+            # Привязка к профилю: явная, иначе сохраняем прежнюю (не стираем).
+            if "profile_id" in entry:
+                profile_id = entry.get("profile_id") or None
+            else:
+                profile_id = existing.get("profile_id") if existing else None
             record = {
                 "entry_id": entry_id,
                 "key": key,
+                "profile_id": profile_id,
                 "value": entry.get("value", ""),
                 "kind": kind,
                 "tags": tags,
@@ -533,17 +635,18 @@ class HistoryStorage:
                 conn.execute(
                     """
                     INSERT INTO long_term_memory
-                        (entry_id, key, value, kind, tags, importance, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (entry_id, key, profile_id, value, kind, tags, importance, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(key) DO UPDATE SET
+                        profile_id = excluded.profile_id,
                         value      = excluded.value,
                         kind       = excluded.kind,
                         tags       = excluded.tags,
                         importance = excluded.importance,
                         updated_at = excluded.updated_at
                     """,
-                    (entry_id, key, record["value"], kind, json.dumps(tags, ensure_ascii=False),
-                     importance, created_at, now),
+                    (entry_id, key, profile_id, record["value"], kind,
+                     json.dumps(tags, ensure_ascii=False), importance, created_at, now),
                 )
                 conn.commit()
             return dict(record)
@@ -555,6 +658,142 @@ class HistoryStorage:
                 return False
             with closing(self._connect()) as conn:
                 conn.execute("DELETE FROM long_term_memory WHERE key = ?", (key,))
+                conn.commit()
+            return True
+
+    # ------------------------------------------------------------------
+    # Профиль пользователя (персонализация)
+    # ------------------------------------------------------------------
+    def list_profiles(self) -> List[dict]:
+        with self._lock:
+            return [dict(p) for p in self._profiles.values()]
+
+    def get_profile(self, profile_id: str) -> Optional[dict]:
+        with self._lock:
+            profile = self._profiles.get(profile_id)
+            return dict(profile) if profile else None
+
+    def get_active_profile(self) -> Optional[dict]:
+        with self._lock:
+            if not self._active_profile_id:
+                return None
+            profile = self._profiles.get(self._active_profile_id)
+            return dict(profile) if profile else None
+
+    def save_profile(self, profile: dict) -> dict:
+        """Создаёт или обновляет профиль пользователя.
+
+        Поля: name (уникальный ключ), display_name, style, format, constraints, notes.
+        Если профиль первый — он автоматически становится активным.
+        """
+        now = _now()
+        name = (profile.get("name") or "").strip()
+        if not name:
+            raise ValueError("Для профиля нужен непустой 'name'")
+        with self._lock:
+            existing = None
+            profile_id = (profile.get("profile_id") or "").strip()
+            if profile_id and profile_id in self._profiles:
+                existing = self._profiles[profile_id]
+            else:
+                for pid, p in self._profiles.items():
+                    if p["name"] == name:
+                        existing = p
+                        profile_id = pid
+                        break
+
+            entry_id = existing["profile_id"] if existing else (profile_id or uuid.uuid4().hex)
+            created_at = existing["created_at"] if existing else now
+            # Имя должно быть уникальным среди ПРОЧИХ профилей.
+            for pid, p in self._profiles.items():
+                if p["name"] == name and pid != entry_id:
+                    raise ValueError(f"Профиль с именем '{name}' уже существует")
+
+            if existing is not None:
+                is_active = existing["is_active"]
+            else:
+                # Первый профиль автоматически активен.
+                is_active = not self._profiles
+                if is_active:
+                    self._active_profile_id = entry_id
+
+            record = {
+                "profile_id": entry_id,
+                "name": name,
+                "display_name": (profile.get("display_name") or "").strip(),
+                "style": (profile.get("style") or "").strip(),
+                "format": (profile.get("format") or "").strip(),
+                "constraints": (profile.get("constraints") or "").strip(),
+                "notes": (profile.get("notes") or "").strip(),
+                "is_active": is_active,
+                "created_at": created_at,
+                "updated_at": now,
+            }
+            self._profiles[entry_id] = record
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO user_profiles
+                        (profile_id, name, display_name, style, format, constraints, notes,
+                         is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(profile_id) DO UPDATE SET
+                        name         = excluded.name,
+                        display_name = excluded.display_name,
+                        style        = excluded.style,
+                        format       = excluded.format,
+                        constraints  = excluded.constraints,
+                        notes        = excluded.notes,
+                        is_active    = excluded.is_active,
+                        updated_at   = excluded.updated_at
+                    """,
+                    (entry_id, name, record["display_name"], record["style"], record["format"],
+                     record["constraints"], record["notes"], 1 if record["is_active"] else 0,
+                     created_at, now),
+                )
+                conn.commit()
+            return dict(record)
+
+    def set_active_profile(self, profile_id: str) -> bool:
+        now = _now()
+        with self._lock:
+            if profile_id not in self._profiles:
+                return False
+            self._active_profile_id = profile_id
+            for pid, p in self._profiles.items():
+                p["is_active"] = (pid == profile_id)
+            with closing(self._connect()) as conn:
+                conn.execute("UPDATE user_profiles SET is_active = 0")
+                conn.execute(
+                    "UPDATE user_profiles SET is_active = 1, updated_at = ? WHERE profile_id = ?",
+                    (now, profile_id),
+                )
+                conn.commit()
+            return True
+
+    def delete_profile(self, profile_id: str) -> bool:
+        with self._lock:
+            removed = self._profiles.pop(profile_id, None)
+            if removed is None:
+                return False
+            if self._active_profile_id == profile_id:
+                self._active_profile_id = None
+            # Отвязываем сессии от удалённого профиля.
+            for session in self._sessions.values():
+                if session.get("profile_id") == profile_id:
+                    session["profile_id"] = None
+            # Удаляем записи долговременной памяти, привязанные к этому профилю.
+            keys_to_delete = [
+                k for k, e in self._long_term.items()
+                if (e.get("profile_id") or None) == profile_id
+            ]
+            for k in keys_to_delete:
+                self._long_term.pop(k, None)
+            with closing(self._connect()) as conn:
+                conn.execute("DELETE FROM user_profiles WHERE profile_id = ?", (profile_id,))
+                conn.execute("UPDATE conversations SET profile_id = NULL WHERE profile_id = ?", (profile_id,))
+                for k in keys_to_delete:
+                    conn.execute("DELETE FROM long_term_memory WHERE key = ?", (k,))
                 conn.commit()
             return True
 
@@ -609,13 +848,22 @@ class HistoryStorage:
                 self.log_memory(session_id, "working", "save", key, source)
                 return {"layer": "working", "entry": entry}
             if layer == "long_term":
-                entry = self.save_long_term_entry({
+                entry_data = {
                     "key": key,
                     "value": op.get("value", ""),
                     "kind": op.get("kind"),
                     "tags": op.get("tags"),
                     "importance": op.get("importance"),
-                })
+                }
+                # Привязка к профилю: явная из op, иначе — профиль сессии
+                # (связь «профиль ↔ долговременная память»).
+                if "profile_id" in op:
+                    entry_data["profile_id"] = op.get("profile_id") or None
+                elif session_id:
+                    sp = self.get_session_profile(session_id)
+                    if sp:
+                        entry_data["profile_id"] = sp
+                entry = self.save_long_term_entry(entry_data)
                 self.log_memory(session_id, "long_term", "save", key, source)
                 return {"layer": "long_term", "entry": entry}
             raise ValueError(f"Неизвестный слой памяти: {layer}")
@@ -644,8 +892,12 @@ class HistoryStorage:
                 if src_entry is None:
                     raise ValueError(f"Запись не найдена: working/{key}")
                 self.delete_working_entry(session_id, key)
+                profile_id = op.get("profile_id")
+                if profile_id is None and session_id:
+                    profile_id = self.get_session_profile(session_id)
                 target = self.save_long_term_entry({
                     "key": key,
+                    "profile_id": profile_id,
                     "value": src_entry["value"],
                     "kind": op.get("kind") or ("fact" if src_entry["kind"] == "fact" else src_entry["kind"]),
                     "tags": op.get("tags") or [],
@@ -669,9 +921,13 @@ class HistoryStorage:
         raise ValueError(f"Неизвестное действие памяти: {action}")
 
     def list_memory(self, session_id: str) -> dict:
-        """Снимок всех трёх слоёв памяти для UI."""
+        """Снимок всех трёх слоёв памяти для UI.
+
+        Долговременная память возвращается в разрезе профиля сессии:
+        общие записи + привязанные к профилю этой сессии.
+        """
         working = self.load_working(session_id)
-        long_term = self.load_long_term()
+        long_term = self.load_long_term_for_profile(self.get_session_profile(session_id))
         return {
             "short_term": {"message_count": len(self.load(session_id) or [])},
             "working": working,
@@ -710,6 +966,7 @@ class HistoryStorage:
                     {
                         "session_id": sid,
                         "strategy": session["strategy"],
+                        "profile_id": session.get("profile_id"),
                         "message_count": len(branch["messages"]) if branch else 0,
                         "branch_count": len(session["branches"]),
                         "working_count": len(self._working.get(sid, {})),

@@ -88,6 +88,8 @@ class AgentRequest(BaseModel):
     memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
     # Включить генерацию предложений памяти (не сохраняются автоматически — только на подтверждение)
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
+    # Профиль пользователя (персонализация). Если не задан — берётся активный профиль.
+    profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
 
 
 class BranchRequest(BaseModel):
@@ -105,6 +107,23 @@ class MemoryOpsRequest(BaseModel):
 class SuggestRequest(BaseModel):
     message: Optional[str] = Field(None, description="Сообщение для анализа (по умолчанию — последнее от пользователя)")
     model: str = Field("deepseek-chat", description="Модель для генерации предложений")
+
+
+class ProfileRequest(BaseModel):
+    """Профиль пользователя — персонализация (стиль, формат, ограничения)."""
+    profile_id: Optional[str] = Field(None, description="ID профиля (если обновляем существующий)")
+    name: str = Field(..., description="Уникальный ключ профиля (напр. ivan_dev)")
+    display_name: Optional[str] = Field("", description="Отображаемое имя пользователя")
+    style: Optional[str] = Field("", description="Стиль общения")
+    format: Optional[str] = Field("", description="Формат ответа")
+    constraints: Optional[str] = Field("", description="Ограничения")
+    notes: Optional[str] = Field("", description="Дополнительные пожелания")
+    is_active: Optional[bool] = Field(False, description="Сделать профиль активным после сохранения")
+
+
+class SessionProfileRequest(BaseModel):
+    """Привязка профиля к сессии (None — отвязать)."""
+    profile_id: Optional[str] = Field(None, description="ID профиля; null/None — отвязать профиль от сессии")
 
 
 # ============================================================
@@ -138,9 +157,24 @@ def estimate_messages_tokens(messages) -> int:
     return total
 
 
-def mock_deepseek_response(messages, model, temperature, top_k, top_p, stop, max_tokens):
+def mock_deepseek_response(messages, model, temperature, top_k, top_p, stop, max_tokens, profile=None):
     user_message = messages[-1]["content"] if messages else ""
     content = f"Эхо (mock): {user_message}"
+
+    # Демонстрация персонализации без реального API: ответ явно отражает
+    # активный профиль, поэтому разные профили дают видимо разные ответы.
+    if profile:
+        bits = []
+        if profile.get("display_name"):
+            bits.append(f"профиль «{profile['display_name']}»")
+        if profile.get("style"):
+            bits.append(f"стиль: {profile['style']}")
+        if profile.get("format"):
+            bits.append(f"формат: {profile['format']}")
+        if profile.get("constraints"):
+            bits.append(f"ограничения: {profile['constraints']}")
+        content += "\n\n[Персонализация применена] " + " · ".join(bits)
+
     prompt_tokens = estimate_messages_tokens(messages)
     completion_tokens = estimate_tokens(content)
     return {
@@ -377,9 +411,32 @@ def build_memory_system_block(working, long_term, long_term_kinds=None) -> str:
     return "\n\n".join(parts)
 
 
-def build_request_messages(strategy, conversation, working, long_term, window_size):
-    """Собирает сообщения модели из трёх слоёв памяти.
+def build_profile_system_block(profile) -> str:
+    """Собирает системный блок с профилем пользователя (персонализация).
 
+    Этот блок подключается к КАЖДОМУ запросу к модели и стоит ПЕРВЫМ,
+    поэтому предпочтения пользователя применяются автоматически.
+    """
+    if not profile:
+        return ""
+    lines = ["Профиль пользователя — ВСЕГДА следуй ему в каждом ответе:"]
+    if profile.get("display_name"):
+        lines.append(f"- Кто: {profile['display_name']}")
+    if profile.get("style"):
+        lines.append(f"- Стиль общения: {profile['style']}")
+    if profile.get("format"):
+        lines.append(f"- Формат ответа: {profile['format']}")
+    if profile.get("constraints"):
+        lines.append(f"- Ограничения: {profile['constraints']}")
+    if profile.get("notes"):
+        lines.append(f"- Дополнительно: {profile['notes']}")
+    return "\n".join(lines)
+
+
+def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None):
+    """Собирает сообщения модели из профиля и трёх слоёв памяти.
+
+    • профиль        — системный блок (всегда, если задан);
     • краткосрочная  — окно последних N (или полная ветка для branching);
     • рабочая        — системный блок (всегда);
     • долговременная — системный блок (для sticky_facts — только факты kind=fact).
@@ -390,6 +447,9 @@ def build_request_messages(strategy, conversation, working, long_term, window_si
         block = build_memory_system_block(working, long_term)
 
     messages = []
+    profile_block = build_profile_system_block(profile)
+    if profile_block:
+        messages.append({"role": "system", "content": profile_block})
     if block:
         messages.append({"role": "system", "content": block})
     if strategy == STRATEGY_BRANCHING:
@@ -433,10 +493,25 @@ async def agent_endpoint(request: AgentRequest):
     window_size = request.window_size if request.window_size >= 1 else DEFAULT_WINDOW_SIZE
 
     try:
-        # 1. Восстановление слоёв памяти.
+        # 1. Восстановление сессии и рабочей памяти.
         conversation = storage.load(agent_id)
         working = storage.load_working(agent_id)
-        long_term = storage.load_long_term()
+
+        # Профиль пользователя (персонализация). Порядок разрешения:
+        # явный из запроса > привязанный к сессии > глобальный активный.
+        profile = None
+        if request.profile_id:
+            profile = storage.get_profile(request.profile_id)
+            if profile is None:
+                raise HTTPException(status_code=400, detail=f"Профиль не найден: {request.profile_id}")
+        else:
+            bound_profile_id = storage.get_session_profile(agent_id)
+            profile = storage.get_profile(bound_profile_id) if bound_profile_id else None
+            if profile is None:
+                profile = storage.get_active_profile()
+
+        # Долговременная память в разрезе профиля: общие записи + привязанные к профилю.
+        long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
         current_user_message = next(
             (m for m in reversed(request.messages) if m.get("role") == "user"),
@@ -445,11 +520,21 @@ async def agent_endpoint(request: AgentRequest):
 
         if conversation is None:
             conversation = list(request.messages)
-            storage.create_session(agent_id, strategy=strategy, window_size=window_size, messages=conversation)
+            storage.create_session(
+                agent_id, strategy=strategy, window_size=window_size,
+                messages=conversation,
+                profile_id=profile["profile_id"] if profile else None,
+            )
         else:
             storage.set_session_meta(agent_id, strategy, window_size)
             if current_user_message and (not conversation or conversation[-1] != current_user_message):
                 conversation.append(current_user_message)
+
+        # Привязка профиля к сессии — намеренное действие: только при явном profile_id
+        # в запросе (новая сессия уже получила профиль при create_session). Простое
+        # наследование глобального активного профиля привязку НЕ перезаписывает.
+        if request.profile_id and profile is not None:
+            storage.set_session_profile(agent_id, profile["profile_id"])
 
         # 2. Явные операции памяти — пользователь выбирает, что и куда сохранять.
         memory_ops_applied = []
@@ -459,7 +544,7 @@ async def agent_endpoint(request: AgentRequest):
             except Exception as e:
                 logger.warning("Ошибка применения memory_op %s: %s", op, e)
         working = storage.load_working(agent_id)
-        long_term = storage.load_long_term()
+        long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
         suggest_cost = 0.0
@@ -474,8 +559,8 @@ async def agent_endpoint(request: AgentRequest):
             except Exception as e:
                 logger.warning("Ошибка генерации предложений памяти: %s", e)
 
-        # 4. Формируем контекст из трёх слоёв.
-        request_messages = build_request_messages(strategy, conversation, working, long_term, window_size)
+        # 4. Формируем контекст из профиля и трёх слоёв памяти.
+        request_messages = build_request_messages(strategy, conversation, working, long_term, window_size, profile=profile)
 
         raw_context_tokens = estimate_messages_tokens(conversation)
         context_tokens = estimate_messages_tokens(request_messages)
@@ -484,7 +569,8 @@ async def agent_endpoint(request: AgentRequest):
         if API_KEY == "sk-1234567890":
             data = mock_deepseek_response(
                 request_messages, request.model, request.temperature,
-                request.top_k, request.top_p, request.stop, request.max_tokens
+                request.top_k, request.top_p, request.stop, request.max_tokens,
+                profile=profile
             )
         else:
             data = call_deepseek(request_messages, request)
@@ -524,6 +610,11 @@ async def agent_endpoint(request: AgentRequest):
             "session_id": agent_id,
             "response": content,
             "strategy": strategy,
+            "profile": {
+                "id": profile["profile_id"],
+                "name": profile["name"],
+                "display_name": profile["display_name"],
+            } if profile else None,
             "usage": {
                 "prompt_tokens": prompt_tokens,
                 "response_tokens": completion_tokens,
@@ -538,6 +629,8 @@ async def agent_endpoint(request: AgentRequest):
             "cost": round(cost, 6),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -573,7 +666,7 @@ async def suggest_endpoint(session_id: str, request: SuggestRequest):
     if message is None:
         raise HTTPException(status_code=400, detail="Нет сообщения пользователя для анализа")
     working = storage.load_working(session_id)
-    long_term = storage.load_long_term()
+    long_term = storage.load_long_term_for_profile(storage.get_session_profile(session_id))
     suggestion, s_inp, s_out = suggest_memory(working, long_term, message.get("content", ""), request.model)
     return {
         "pending_memory": flatten_suggestions(suggestion),
@@ -582,9 +675,14 @@ async def suggest_endpoint(session_id: str, request: SuggestRequest):
 
 
 # Глобальная долговременная память (общая для всех сессий).
+# Опционально — фильтр по профилю (?profile_id=...): общие записи + записи профиля.
 @app.get("/memory/longterm")
-async def list_long_term():
-    return {"long_term": storage.load_long_term()}
+async def list_long_term(profile_id: Optional[str] = None):
+    if profile_id:
+        entries = storage.load_long_term_for_profile(profile_id)
+    else:
+        entries = storage.load_long_term()
+    return {"long_term": entries}
 
 
 # Добавление/удаление в долговременной памяти НЕ зависит от диалога/сессии.
@@ -604,6 +702,65 @@ async def apply_long_term_ops(request: MemoryOpsRequest):
 
 
 # ============================================================
+# Профиль пользователя (персонализация)
+# ============================================================
+def _profiles_payload() -> dict:
+    active = storage.get_active_profile()
+    return {
+        "profiles": storage.list_profiles(),
+        "active_profile_id": active["profile_id"] if active else None,
+    }
+
+
+@app.get("/profiles")
+async def list_profiles():
+    return _profiles_payload()
+
+
+@app.get("/profiles/{profile_id}")
+async def get_profile(profile_id: str):
+    profile = storage.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    return {"profile": profile}
+
+
+@app.post("/profiles")
+async def save_profile(request: ProfileRequest):
+    try:
+        profile = storage.save_profile({
+            "profile_id": request.profile_id,
+            "name": request.name,
+            "display_name": request.display_name,
+            "style": request.style,
+            "format": request.format,
+            "constraints": request.constraints,
+            "notes": request.notes,
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if request.is_active:
+        storage.set_active_profile(profile["profile_id"])
+    payload = _profiles_payload()
+    payload["profile"] = profile
+    return payload
+
+
+@app.post("/profiles/{profile_id}/activate")
+async def activate_profile(profile_id: str):
+    if not storage.set_active_profile(profile_id):
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    return _profiles_payload()
+
+
+@app.delete("/profiles/{profile_id}")
+async def delete_profile(profile_id: str):
+    if not storage.delete_profile(profile_id):
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    return _profiles_payload()
+
+
+# ============================================================
 # История, ветки, сессии
 # ============================================================
 @app.get("/agent/{session_id}")
@@ -613,17 +770,51 @@ async def get_agent_history(session_id: str):
         raise HTTPException(status_code=404, detail="Сессия не найдена")
     messages = storage.load(session_id)
     working = storage.load_working(session_id)
-    long_term = storage.load_long_term()
+    profile_id = storage.get_session_profile(session_id)
+    long_term = storage.load_long_term_for_profile(profile_id)
     branches = storage.list_branches(session_id)
     return {
         "session_id": session_id,
         "messages": messages,
         "strategy": meta["strategy"],
         "window_size": meta["window_size"],
+        "profile_id": profile_id,
+        "profile": storage.get_profile(profile_id) if profile_id else None,
         "working": working,
         "long_term": long_term,
         "current_branch": meta["current_branch"],
         "branches": branches,
+    }
+
+
+@app.get("/agent/{session_id}/profile")
+async def get_session_profile(session_id: str):
+    meta = storage.get_session_meta(session_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    profile_id = meta.get("profile_id")
+    active = storage.get_active_profile()
+    return {
+        "session_id": session_id,
+        "profile_id": profile_id,
+        "profile": storage.get_profile(profile_id) if profile_id else None,
+        "profiles": storage.list_profiles(),
+        "active_profile_id": active["profile_id"] if active else None,
+    }
+
+
+@app.post("/agent/{session_id}/profile")
+async def set_session_profile(session_id: str, request: SessionProfileRequest):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    if request.profile_id and storage.get_profile(request.profile_id) is None:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    storage.set_session_profile(session_id, request.profile_id)
+    profile_id = storage.get_session_profile(session_id)
+    return {
+        "session_id": session_id,
+        "profile_id": profile_id,
+        "profile": storage.get_profile(profile_id) if profile_id else None,
     }
 
 

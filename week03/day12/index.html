@@ -662,6 +662,54 @@
             background: rgba(0, 184, 148, 0.4);
         }
 
+        /* Форма профиля пользователя (персонализация) */
+        .profile-form {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .profile-form input, .profile-form textarea, .profile-form select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            width: 100%;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .profile-form input:focus, .profile-form textarea:focus, .profile-form select:focus {
+            outline: none;
+            border-color: #00b894;
+        }
+
+        .profile-form .profile-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .profile-form .profile-row select {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .profile-form .profile-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .profile-field-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            font-weight: 600;
+        }
+
         /* Очередь предложений памяти */
         .pending {
             display: flex;
@@ -928,6 +976,35 @@
 
         <!-- Правая панель: память + чат + ввод + статистика -->
         <div class="chat-panel">
+            <details class="memory-panel" id="profilePanel">
+                <summary>👤 Профиль пользователя <span class="memory-badge" id="profileBadge">не задан</span>
+                </summary>
+                <div class="memory-body">
+                    <div class="profile-form">
+                        <div class="profile-row">
+                            <select id="profileSelect" title="Активный профиль"></select>
+                            <button class="mem-btn del" id="profileDeleteBtn">✕</button>
+                        </div>
+                        <label class="profile-field-label" for="profileName">Ключ (уникальный)</label>
+                        <input id="profileName" placeholder="напр. ivan_dev">
+                        <label class="profile-field-label" for="profileDisplayName">Имя</label>
+                        <input id="profileDisplayName" placeholder="напр. Иван, разработчик">
+                        <label class="profile-field-label" for="profileStyle">Стиль общения</label>
+                        <textarea id="profileStyle" rows="2" placeholder="напр. кратко, дружелюбно, по делу"></textarea>
+                        <label class="profile-field-label" for="profileFormat">Формат ответа</label>
+                        <textarea id="profileFormat" rows="2" placeholder="напр. markdown со списками, без воды"></textarea>
+                        <label class="profile-field-label" for="profileConstraints">Ограничения</label>
+                        <textarea id="profileConstraints" rows="2" placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
+                        <label class="profile-field-label" for="profileNotes">Дополнительно</label>
+                        <textarea id="profileNotes" rows="2" placeholder="напр. отвечай на «ты»"></textarea>
+                        <div class="profile-actions">
+                            <button class="btn-mem-save" id="profileSaveBtn">💾 Сохранить профиль</button>
+                            <button class="btn-suggest" id="profileNewBtn">➕ Новый</button>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
             <details class="memory-panel" id="memoryPanel">
                 <summary>🧠 Память <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
                 </summary>
@@ -1066,6 +1143,18 @@
     const memSaveBtn = document.getElementById('memSaveBtn');
     const suggestBtn = document.getElementById('suggestBtn');
     const pendingList = document.getElementById('pendingList');
+    // Профиль пользователя (персонализация)
+    const profileBadge = document.getElementById('profileBadge');
+    const profileSelect = document.getElementById('profileSelect');
+    const profileDeleteBtn = document.getElementById('profileDeleteBtn');
+    const profileSaveBtn = document.getElementById('profileSaveBtn');
+    const profileNewBtn = document.getElementById('profileNewBtn');
+    const profileName = document.getElementById('profileName');
+    const profileDisplayName = document.getElementById('profileDisplayName');
+    const profileStyle = document.getElementById('profileStyle');
+    const profileFormat = document.getElementById('profileFormat');
+    const profileConstraints = document.getElementById('profileConstraints');
+    const profileNotes = document.getElementById('profileNotes');
 
     const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
     const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
@@ -1084,6 +1173,9 @@
     let sessionId = localStorage.getItem('agentSessionId') || null;
     let memory = {working: [], long_term: []};
     let pendingMemory = [];
+    let profiles = [];
+    let activeProfileId = null;
+    let sessionProfileId = null;
 
     // === Вспомогательные ===
     function escapeHtml(text) {
@@ -1160,9 +1252,13 @@
         const state = e.state ? `<span class="mem-state">${escapeHtml(STATE_LABELS[e.state] || e.state)}</span>` : '';
         const moveTo = isWorking ? 'long_term' : 'working';
         const moveLabel = isWorking ? '→ долговр.' : '→ рабочая';
+        // Для долговременной памяти показываем привязку: общая (без профиля) или «мой профиль».
+        const ownerTag = (!isWorking && !e.profile_id)
+            ? ' <span class="mem-kind" style="background:rgba(0,184,148,0.25);color:#81ecec">общая</span>'
+            : '';
         return `
       <li class="mem-item">
-        <span class="mem-kind">${escapeHtml(kind)}</span><b>${escapeHtml(e.key)}</b>: ${escapeHtml(e.value)}${state}
+        <span class="mem-kind">${escapeHtml(kind)}</span><b>${escapeHtml(e.key)}</b>: ${escapeHtml(e.value)}${ownerTag}${state}
         <div class="mem-actions">
           <button class="mem-btn" data-action="move" data-layer="${escapeAttr(layer)}" data-to="${escapeAttr(moveTo)}" data-key="${escapeAttr(e.key)}">${moveLabel}</button>
           <button class="mem-btn del" data-action="delete" data-layer="${escapeAttr(layer)}" data-key="${escapeAttr(e.key)}">✕</button>
@@ -1249,6 +1345,14 @@
                 `<div class="meta">${memLine} · отправлено: последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
         }
 
+        const ap = getActiveProfile();
+        if (ap) {
+            html += `<div class="meta">👤 Профиль: <b>${escapeHtml(ap.display_name || ap.name)}</b>` +
+                (ap.style ? ` · стиль: ${escapeHtml(ap.style)}` : '') +
+                (ap.constraints ? ` · ограничения: ${escapeHtml(ap.constraints)}` : '') +
+                `</div>`;
+        }
+
         contextSummary.innerHTML = html;
         if (flash) {
             contextSummary.classList.remove('flash');
@@ -1279,16 +1383,22 @@
         }
     }
 
-    // Долговременная память глобальная — не зависит от диалога/сессии.
+    // Долговременная память: привязываем сохраняемые записи к активному профилю.
     async function applyLongTermOps(ops) {
+        const scopedOps = ops.map(op => {
+            const o = {...op};
+            const pid = currentProfileId();
+            if (o.action === 'save' && pid) o.profile_id = pid;
+            return o;
+        });
         try {
-            const data = await apiFetch(`/memory/longterm`, {
+            await apiFetch(`/memory/longterm`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ops}),
+                body: JSON.stringify({ops: scopedOps}),
             });
-            memory.long_term = data.long_term || [];
-            renderMemory();
+            // Перечитываем в разрезе активного профиля (общие + привязанные).
+            await loadLongTerm();
             return true;
         } catch (err) {
             alert(`Ошибка операции с долговременной памятью: ${err.message}`);
@@ -1298,7 +1408,9 @@
 
     async function loadLongTerm() {
         try {
-            const data = await apiFetch('/memory/longterm');
+            const pid = currentProfileId();
+            const q = pid ? `?profile_id=${encodeURIComponent(pid)}` : '';
+            const data = await apiFetch(`/memory/longterm${q}`);
             memory.long_term = data.long_term || [];
             renderMemory();
         } catch (err) { /* сервер недоступен */ }
@@ -1371,6 +1483,154 @@
         renderPending();
     }
 
+    // === Профиль пользователя (персонализация) ===
+    function getActiveProfile() {
+        return profiles.find(p => p.profile_id === activeProfileId) || null;
+    }
+
+    // Профиль «в работе»: если открыта сессия — профиль сессии (с фолбэком
+    // на глобальный активный), иначе — глобальный активный.
+    function currentProfileId() {
+        if (sessionId) return sessionProfileId || activeProfileId || null;
+        return activeProfileId || null;
+    }
+
+    async function bindSessionProfile(profileId) {
+        if (!sessionId) return;
+        try {
+            await apiFetch(`/agent/${encodeURIComponent(sessionId)}/profile`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({profile_id: profileId}),
+            });
+            sessionProfileId = profileId;
+        } catch (err) {
+            alert(`Ошибка привязки профиля к сессии: ${err.message}`);
+        }
+    }
+
+    function renderProfiles() {
+        const active = getActiveProfile();
+        let badge = active
+            ? `активен: ${active.display_name || active.name}`
+            : 'не задан';
+        if (sessionId) {
+            const sessionProfile = profiles.find(p => p.profile_id === sessionProfileId) || null;
+            badge += sessionProfile
+                ? ` · сессия: ${sessionProfile.display_name || sessionProfile.name}`
+                : ' · сессия: без профиля';
+        }
+        profileBadge.textContent = badge;
+        profileSelect.innerHTML = profiles.length
+            ? profiles.map(p => {
+                const label = p.display_name || p.name;
+                const sel = p.profile_id === activeProfileId ? ' selected' : '';
+                return `<option value="${escapeAttr(p.profile_id)}"${sel}>${escapeHtml(label)}</option>`;
+            }).join('')
+            : '<option value="">— нет профилей —</option>';
+    }
+
+    function fillProfileForm(profile) {
+        profileName.value = profile ? (profile.name || '') : '';
+        profileDisplayName.value = profile ? (profile.display_name || '') : '';
+        profileStyle.value = profile ? (profile.style || '') : '';
+        profileFormat.value = profile ? (profile.format || '') : '';
+        profileConstraints.value = profile ? (profile.constraints || '') : '';
+        profileNotes.value = profile ? (profile.notes || '') : '';
+    }
+
+    async function loadProfiles() {
+        try {
+            const data = await apiFetch('/profiles');
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    async function saveProfile() {
+        const name = profileName.value.trim();
+        if (!name) {
+            alert('Укажите ключ профиля (напр. ivan_dev)');
+            return;
+        }
+        const body = {
+            name: name,
+            display_name: profileDisplayName.value.trim(),
+            style: profileStyle.value.trim(),
+            format: profileFormat.value.trim(),
+            constraints: profileConstraints.value.trim(),
+            notes: profileNotes.value.trim(),
+            is_active: true,
+        };
+        if (activeProfileId && getActiveProfile()) body.profile_id = activeProfileId;
+        try {
+            const data = await apiFetch('/profiles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || (data.profile ? data.profile.profile_id : null);
+            if (activeProfileId) await bindSessionProfile(activeProfileId);
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await loadLongTerm();
+        } catch (err) {
+            alert(`Ошибка сохранения профиля: ${err.message}`);
+        }
+    }
+
+    async function deleteProfile() {
+        if (!activeProfileId) {
+            alert('Нет активного профиля для удаления');
+            return;
+        }
+        if (!confirm('Удалить активный профиль? Это также отвяжет сессии и удалит его записи памяти.')) return;
+        const deletedId = activeProfileId;
+        try {
+            const data = await apiFetch(`/profiles/${encodeURIComponent(deletedId)}`, {
+                method: 'DELETE',
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            if (sessionProfileId === deletedId) sessionProfileId = null;
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await loadLongTerm();
+        } catch (err) {
+            alert(`Ошибка удаления профиля: ${err.message}`);
+        }
+    }
+
+    async function activateProfile(profileId) {
+        if (!profileId) return;
+        try {
+            const data = await apiFetch(`/profiles/${encodeURIComponent(profileId)}/activate`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: '{}',
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            await bindSessionProfile(profileId);
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await loadLongTerm();
+        } catch (err) {
+            alert(`Ошибка активации профиля: ${err.message}`);
+        }
+    }
+
+    function newProfile() {
+        activeProfileId = null;
+        fillProfileForm(null);
+        renderProfiles();
+        loadLongTerm();
+        profileName.focus();
+    }
+
     // === Отправка запроса ===
     async function sendRequest() {
         const userMessage = messageEl.value.trim();
@@ -1415,6 +1675,7 @@
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
+        if (activeProfileId) payload.profile_id = activeProfileId;
 
         try {
             const data = await apiFetch(ENDPOINT, {
@@ -1434,6 +1695,12 @@
             pendingMemory = data.pending_memory || [];
             renderMemory();
             renderPending();
+
+            if (data.profile) {
+                activeProfileId = data.profile.id;
+                sessionProfileId = data.profile.id;
+                renderProfiles();
+            }
 
             if (data.context && data.context.branches) {
                 branches = data.context.branches;
@@ -1514,6 +1781,7 @@
                 sessionId = data.session_id || savedId;
                 branches = data.branches || [];
                 currentBranchId = data.current_branch || null;
+                sessionProfileId = data.profile_id || null;
                 memory = {working: data.working || [], long_term: data.long_term || []};
                 pendingMemory = [];
                 if (data.strategy) strategyEl.value = data.strategy;
@@ -1551,6 +1819,7 @@
         history = [];
         branches = [];
         currentBranchId = null;
+        sessionProfileId = null;
         memory = {working: [], long_term: memory.long_term || []};
         pendingMemory = [];
         history.push({
@@ -1567,6 +1836,8 @@
         messageEl.focus();
         // Долговременная память переживает сброс — перечитаем её с сервера.
         await loadLongTerm();
+        // Профиль пользователя тоже глобальный — обновим список.
+        await loadProfiles();
     }
 
     // === Обработчики ===
@@ -1578,6 +1849,10 @@
     memLayer.addEventListener('change', updateMemoryForm);
     memSaveBtn.addEventListener('click', saveMemoryFromForm);
     suggestBtn.addEventListener('click', suggestMemory);
+    profileSaveBtn.addEventListener('click', saveProfile);
+    profileDeleteBtn.addEventListener('click', deleteProfile);
+    profileNewBtn.addEventListener('click', newProfile);
+    profileSelect.addEventListener('change', (e) => activateProfile(e.target.value));
     messageEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -1600,6 +1875,8 @@
     (async function init() {
         updateBranchControlsVisibility();
         updateMemoryForm();
+        // Профили — глобальные (не зависят от сессии), загружаем сразу.
+        await loadProfiles();
         if (sessionId) {
             const restored = await restoreSession(sessionId);
             if (restored) {
