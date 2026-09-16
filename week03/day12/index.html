@@ -710,6 +710,119 @@
             font-weight: 600;
         }
 
+        /* Панель-инструментов: кнопки открытия модальных окон */
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .tool-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(108, 92, 231, 0.15);
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 14px;
+            color: #e9e5ff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, transform 0.1s;
+        }
+
+        .tool-btn:hover {
+            background: rgba(108, 92, 231, 0.3);
+            border-color: #a29bfe;
+        }
+
+        .tool-btn:active {
+            transform: scale(0.98);
+        }
+
+        .tool-btn .memory-badge {
+            margin-left: 0;
+            color: #a0aec0;
+        }
+
+        /* Модальные окна */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 100;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1f2a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 22px;
+            width: 100%;
+            max-width: 720px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+            animation: modalIn 0.2s ease;
+        }
+
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f0f3f8;
+            letter-spacing: -0.3px;
+        }
+
+        .modal-close {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #a0aec0;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 1;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
         /* Очередь предложений памяти */
         .pending {
             display: flex;
@@ -974,70 +1087,16 @@
             <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
         </div>
 
-        <!-- Правая панель: память + чат + ввод + статистика -->
+        <!-- Правая панель: чат + ввод + статистика -->
         <div class="chat-panel">
-            <details class="memory-panel" id="profilePanel">
-                <summary>👤 Профиль пользователя <span class="memory-badge" id="profileBadge">не задан</span>
-                </summary>
-                <div class="memory-body">
-                    <div class="profile-form">
-                        <div class="profile-row">
-                            <select id="profileSelect" title="Активный профиль"></select>
-                            <button class="mem-btn del" id="profileDeleteBtn">✕</button>
-                        </div>
-                        <label class="profile-field-label" for="profileName">Ключ (уникальный)</label>
-                        <input id="profileName" placeholder="напр. ivan_dev">
-                        <label class="profile-field-label" for="profileDisplayName">Имя</label>
-                        <input id="profileDisplayName" placeholder="напр. Иван, разработчик">
-                        <label class="profile-field-label" for="profileStyle">Стиль общения</label>
-                        <textarea id="profileStyle" rows="2" placeholder="напр. кратко, дружелюбно, по делу"></textarea>
-                        <label class="profile-field-label" for="profileFormat">Формат ответа</label>
-                        <textarea id="profileFormat" rows="2" placeholder="напр. markdown со списками, без воды"></textarea>
-                        <label class="profile-field-label" for="profileConstraints">Ограничения</label>
-                        <textarea id="profileConstraints" rows="2" placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
-                        <label class="profile-field-label" for="profileNotes">Дополнительно</label>
-                        <textarea id="profileNotes" rows="2" placeholder="напр. отвечай на «ты»"></textarea>
-                        <div class="profile-actions">
-                            <button class="btn-mem-save" id="profileSaveBtn">💾 Сохранить профиль</button>
-                            <button class="btn-suggest" id="profileNewBtn">➕ Новый</button>
-                        </div>
-                    </div>
-                </div>
-            </details>
-
-            <details class="memory-panel" id="memoryPanel">
-                <summary>🧠 Память <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
-                </summary>
-                <div class="memory-body">
-                    <div class="memory-grid">
-                        <div class="memory-col">
-                            <div class="memory-col-title">💬 Краткосрочная</div>
-                            <div class="memory-list" id="memoryShort"></div>
-                        </div>
-                        <div class="memory-col">
-                            <div class="memory-col-title">📌 Рабочая (задача)</div>
-                            <div class="memory-list" id="memoryWorking"></div>
-                        </div>
-                        <div class="memory-col">
-                            <div class="memory-col-title">🗄 Долговременная</div>
-                            <div class="memory-list" id="memoryLongTerm"></div>
-                        </div>
-                    </div>
-                    <div class="memory-save">
-                        <input class="mem-key" id="memKey" placeholder="ключ (напр. цель)">
-                        <input class="mem-value" id="memValue" placeholder="значение">
-                        <select id="memLayer">
-                            <option value="working">→ рабочая</option>
-                            <option value="long_term">→ долговременная</option>
-                        </select>
-                        <select id="memKind"></select>
-                        <select id="memState"></select>
-                        <button class="btn-mem-save" id="memSaveBtn">💾 Сохранить</button>
-                    </div>
-                    <button class="btn-suggest" id="suggestBtn">✨ Предложить память (модель)</button>
-                    <div class="pending" id="pendingList"></div>
-                </div>
-            </details>
+            <div class="toolbar">
+                <button class="tool-btn" id="profileOpenBtn">👤 Профиль
+                    <span class="memory-badge" id="profileBadge">не задан</span>
+                </button>
+                <button class="tool-btn" id="memoryOpenBtn">🧠 Память
+                    <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
+                </button>
+            </div>
 
             <div class="context-summary" id="contextSummary"></div>
 
@@ -1101,6 +1160,75 @@
     </div>
 </div>
 
+<!-- Модальное окно: Профиль пользователя -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">👤 Профиль пользователя</div>
+            <button class="modal-close" data-close="profileModal" title="Закрыть">✕</button>
+        </div>
+        <div class="profile-form">
+            <div class="profile-row">
+                <select id="profileSelect" title="Активный профиль"></select>
+                <button class="mem-btn del" id="profileDeleteBtn" title="Удалить профиль">✕</button>
+            </div>
+            <label class="profile-field-label" for="profileName">Ключ (уникальный)</label>
+            <input id="profileName" placeholder="напр. ivan_dev">
+            <label class="profile-field-label" for="profileDisplayName">Имя</label>
+            <input id="profileDisplayName" placeholder="напр. Иван, разработчик">
+            <label class="profile-field-label" for="profileStyle">Стиль общения</label>
+            <textarea id="profileStyle" rows="2" placeholder="напр. кратко, дружелюбно, по делу"></textarea>
+            <label class="profile-field-label" for="profileFormat">Формат ответа</label>
+            <textarea id="profileFormat" rows="2" placeholder="напр. markdown со списками, без воды"></textarea>
+            <label class="profile-field-label" for="profileConstraints">Ограничения</label>
+            <textarea id="profileConstraints" rows="2" placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
+            <label class="profile-field-label" for="profileNotes">Дополнительно</label>
+            <textarea id="profileNotes" rows="2" placeholder="напр. отвечай на «ты»"></textarea>
+            <div class="profile-actions">
+                <button class="btn-mem-save" id="profileSaveBtn">💾 Сохранить профиль</button>
+                <button class="btn-suggest" id="profileNewBtn">➕ Новый</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Память -->
+<div class="modal-overlay" id="memoryModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🧠 Память</div>
+            <button class="modal-close" data-close="memoryModal" title="Закрыть">✕</button>
+        </div>
+        <div class="memory-grid">
+            <div class="memory-col">
+                <div class="memory-col-title">💬 Краткосрочная</div>
+                <div class="memory-list" id="memoryShort"></div>
+            </div>
+            <div class="memory-col">
+                <div class="memory-col-title">📌 Рабочая (задача)</div>
+                <div class="memory-list" id="memoryWorking"></div>
+            </div>
+            <div class="memory-col">
+                <div class="memory-col-title">🗄 Долговременная</div>
+                <div class="memory-list" id="memoryLongTerm"></div>
+            </div>
+        </div>
+        <div class="memory-save">
+            <input class="mem-key" id="memKey" placeholder="ключ (напр. цель)">
+            <input class="mem-value" id="memValue" placeholder="значение">
+            <select id="memLayer">
+                <option value="working">→ рабочая</option>
+                <option value="long_term">→ долговременная</option>
+            </select>
+            <select id="memKind"></select>
+            <select id="memState"></select>
+            <button class="btn-mem-save" id="memSaveBtn">💾 Сохранить</button>
+        </div>
+        <button class="btn-suggest" id="suggestBtn">✨ Предложить память (модель)</button>
+        <div class="pending" id="pendingList"></div>
+    </div>
+</div>
+
 <script>
     // === Конфигурация ===
     const API_BASE = 'http://localhost:8000';
@@ -1155,6 +1283,8 @@
     const profileFormat = document.getElementById('profileFormat');
     const profileConstraints = document.getElementById('profileConstraints');
     const profileNotes = document.getElementById('profileNotes');
+    const profileOpenBtn = document.getElementById('profileOpenBtn');
+    const memoryOpenBtn = document.getElementById('memoryOpenBtn');
 
     const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
     const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
@@ -1176,6 +1306,15 @@
     let profiles = [];
     let activeProfileId = null;
     let sessionProfileId = null;
+
+    // === Модальные окна ===
+    function openModal(id) {
+        document.getElementById(id).classList.add('visible');
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).classList.remove('visible');
+    }
 
     // === Вспомогательные ===
     function escapeHtml(text) {
@@ -1416,6 +1555,26 @@
         } catch (err) { /* сервер недоступен */ }
     }
 
+    // Рабочая память сессии (список задач) в разрезе профиля.
+    async function loadSessionMemory() {
+        if (!sessionId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`);
+            memory.working = data.working || [];
+            memory.long_term = data.long_term || [];
+            renderMemory();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    // Перечитываем и задачи, и долговременную память под текущий профиль.
+    async function refreshMemory() {
+        if (sessionId) {
+            await loadSessionMemory();
+        } else {
+            await loadLongTerm();
+        }
+    }
+
     function deleteMemory(layer, key) {
         if (layer === 'long_term') return applyLongTermOps([{action: 'delete', layer, key}]);
         return applyOps([{action: 'delete', layer, key}]);
@@ -1576,7 +1735,7 @@
             if (activeProfileId) await bindSessionProfile(activeProfileId);
             renderProfiles();
             fillProfileForm(getActiveProfile());
-            await loadLongTerm();
+            await refreshMemory();
         } catch (err) {
             alert(`Ошибка сохранения профиля: ${err.message}`);
         }
@@ -1598,7 +1757,7 @@
             if (sessionProfileId === deletedId) sessionProfileId = null;
             renderProfiles();
             fillProfileForm(getActiveProfile());
-            await loadLongTerm();
+            await refreshMemory();
         } catch (err) {
             alert(`Ошибка удаления профиля: ${err.message}`);
         }
@@ -1617,7 +1776,7 @@
             await bindSessionProfile(profileId);
             renderProfiles();
             fillProfileForm(getActiveProfile());
-            await loadLongTerm();
+            await refreshMemory();
         } catch (err) {
             alert(`Ошибка активации профиля: ${err.message}`);
         }
@@ -1627,7 +1786,7 @@
         activeProfileId = null;
         fillProfileForm(null);
         renderProfiles();
-        loadLongTerm();
+        refreshMemory();
         profileName.focus();
     }
 
@@ -1853,6 +2012,23 @@
     profileDeleteBtn.addEventListener('click', deleteProfile);
     profileNewBtn.addEventListener('click', newProfile);
     profileSelect.addEventListener('change', (e) => activateProfile(e.target.value));
+    profileOpenBtn.addEventListener('click', () => openModal('profileModal'));
+    memoryOpenBtn.addEventListener('click', () => openModal('memoryModal'));
+
+    // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+        ov.addEventListener('click', (e) => {
+            if (e.target === ov) closeModal(ov.id);
+        });
+    });
+    document.querySelectorAll('[data-close]').forEach(btn => {
+        btn.addEventListener('click', () => closeModal(btn.dataset.close));
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.visible').forEach(ov => closeModal(ov.id));
+        }
+    });
     messageEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();

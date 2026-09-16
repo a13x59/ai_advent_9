@@ -108,13 +108,15 @@ class HistoryStorage:
                     )
                     """
                 )
-                # Рабочая память — данные текущей задачи. Привязана к сессии.
-                # state — состояние выполнения задачи (pending/in_progress/done/blocked).
+                # Рабочая память — данные текущей задачи. Привязана к сессии И профилю:
+                # у каждого профиля свой список задач. state — состояние выполнения
+                # задачи (pending/in_progress/done/blocked).
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS working_memory (
                         entry_id   TEXT PRIMARY KEY,
                         session_id TEXT NOT NULL,
+                        profile_id TEXT NOT NULL DEFAULT '',
                         key        TEXT NOT NULL,
                         value      TEXT NOT NULL,
                         kind       TEXT NOT NULL DEFAULT 'note',
@@ -122,7 +124,7 @@ class HistoryStorage:
                         importance INTEGER NOT NULL DEFAULT 0,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
-                        UNIQUE(session_id, key)
+                        UNIQUE(session_id, profile_id, key)
                     )
                     """
                 )
@@ -149,6 +151,38 @@ class HistoryStorage:
                     conn.execute("ALTER TABLE conversations ADD COLUMN profile_id TEXT")
                 if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(long_term_memory)")}:
                     conn.execute("ALTER TABLE long_term_memory ADD COLUMN profile_id TEXT")
+                # working_memory: меняем уникальный ключ на (session_id, profile_id, key),
+                # поэтому таблицу нужно пересоздать (SQLite не умеет удалять UNIQUE).
+                if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(working_memory)")}:
+                    conn.execute("ALTER TABLE working_memory RENAME TO working_memory_old")
+                    conn.execute(
+                        """
+                        CREATE TABLE working_memory (
+                            entry_id   TEXT PRIMARY KEY,
+                            session_id TEXT NOT NULL,
+                            profile_id TEXT NOT NULL DEFAULT '',
+                            key        TEXT NOT NULL,
+                            value      TEXT NOT NULL,
+                            kind       TEXT NOT NULL DEFAULT 'note',
+                            state      TEXT,
+                            importance INTEGER NOT NULL DEFAULT 0,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            UNIQUE(session_id, profile_id, key)
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO working_memory
+                            (entry_id, session_id, profile_id, key, value, kind, state,
+                             importance, created_at, updated_at)
+                        SELECT entry_id, session_id, '', key, value, kind, state,
+                               importance, created_at, updated_at
+                        FROM working_memory_old
+                        """
+                    )
+                    conn.execute("DROP TABLE working_memory_old")
                 # Профиль пользователя — персонализация поверх памяти:
                 # явное описание предпочтений (стиль, формат, ограничения),
                 # которое подключается к каждому запросу к модели.
@@ -198,7 +232,7 @@ class HistoryStorage:
                     "SELECT branch_id, session_id, name, messages, checkpoint FROM branches"
                 ).fetchall()
                 working_rows = conn.execute(
-                    "SELECT entry_id, session_id, key, value, kind, state, importance, "
+                    "SELECT entry_id, session_id, profile_id, key, value, kind, state, importance, "
                     "created_at, updated_at FROM working_memory"
                 ).fetchall()
                 long_term_rows = conn.execute(
@@ -236,6 +270,7 @@ class HistoryStorage:
                 entry = {
                     "entry_id": row["entry_id"],
                     "key": row["key"],
+                    "profile_id": row["profile_id"] or "",
                     "value": row["value"],
                     "kind": row["kind"],
                     "state": row["state"],
@@ -243,7 +278,8 @@ class HistoryStorage:
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
-                self._working.setdefault(row["session_id"], {})[row["key"]] = entry
+                # Ключ в памяти — (profile_id, key): у каждого профиля свой список задач.
+                self._working.setdefault(row["session_id"], {})[(entry["profile_id"], row["key"])] = entry
 
             self._long_term = {}
             for row in long_term_rows:
@@ -510,12 +546,29 @@ class HistoryStorage:
             return result
 
     # ------------------------------------------------------------------
-    # Рабочая память (working)
+    # Рабочая память (working) — привязана к сессии И профилю
     # ------------------------------------------------------------------
-    def load_working(self, session_id: str) -> List[dict]:
+    @staticmethod
+    def _working_profile_id(profile_id: Optional[str]) -> str:
+        return (profile_id or "").strip()
+
+    def resolve_working_profile_id(self, session_id: str) -> str:
+        """Профиль, к которому относится рабочая память сессии:
+        привязанный профиль сессии, иначе глобальный активный, иначе '' (без профиля)."""
+        pid = self.get_session_profile(session_id)
+        if pid:
+            return pid
+        active = self.get_active_profile()
+        return active["profile_id"] if active else ""
+
+    def load_working(self, session_id: str, profile_id: Optional[str] = None) -> List[dict]:
+        """Рабочая память. profile_id=None → все записи сессии; иначе — только этого профиля."""
         with self._lock:
             entries = self._working.get(session_id, {})
-            return [dict(e) for e in entries.values()]
+            if profile_id is None:
+                return [dict(e) for e in entries.values()]
+            pid = self._working_profile_id(profile_id)
+            return [dict(e) for (p, _k), e in entries.items() if p == pid]
 
     def save_working_entry(self, session_id: str, entry: dict) -> dict:
         now = _now()
@@ -523,13 +576,19 @@ class HistoryStorage:
         kind = _normalize_kind(entry.get("kind"), WORKING_KINDS, "note")
         state = _normalize_state(entry.get("state"))
         importance = int(entry.get("importance") or 0)
+        # Привязка к профилю: явная из entry, иначе — профиль сессии.
+        if "profile_id" in entry:
+            profile_id = self._working_profile_id(entry.get("profile_id"))
+        else:
+            profile_id = self._working_profile_id(self.resolve_working_profile_id(session_id))
         with self._lock:
-            existing = self._working.get(session_id, {}).get(key)
+            existing = self._working.get(session_id, {}).get((profile_id, key))
             entry_id = existing["entry_id"] if existing else uuid.uuid4().hex
             created_at = existing["created_at"] if existing else now
             record = {
                 "entry_id": entry_id,
                 "key": key,
+                "profile_id": profile_id,
                 "value": entry.get("value", ""),
                 "kind": kind,
                 "state": state,
@@ -537,35 +596,39 @@ class HistoryStorage:
                 "created_at": created_at,
                 "updated_at": now,
             }
-            self._working.setdefault(session_id, {})[key] = record
+            self._working.setdefault(session_id, {})[(profile_id, key)] = record
             with closing(self._connect()) as conn:
                 conn.execute(
                     """
                     INSERT INTO working_memory
-                        (entry_id, session_id, key, value, kind, state, importance, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id, key) DO UPDATE SET
+                        (entry_id, session_id, profile_id, key, value, kind, state,
+                         importance, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id, profile_id, key) DO UPDATE SET
                         value      = excluded.value,
                         kind       = excluded.kind,
                         state      = excluded.state,
                         importance = excluded.importance,
                         updated_at = excluded.updated_at
                     """,
-                    (entry_id, session_id, key, record["value"], kind, state,
+                    (entry_id, session_id, profile_id, key, record["value"], kind, state,
                      importance, created_at, now),
                 )
                 conn.commit()
             return dict(record)
 
-    def delete_working_entry(self, session_id: str, key: str) -> bool:
+    def delete_working_entry(self, session_id: str, key: str, profile_id: Optional[str] = None) -> bool:
         with self._lock:
-            removed = self._working.get(session_id, {}).pop(key, None)
+            if profile_id is None:
+                profile_id = self.resolve_working_profile_id(session_id)
+            pid = self._working_profile_id(profile_id)
+            removed = self._working.get(session_id, {}).pop((pid, key), None)
             if removed is None:
                 return False
             with closing(self._connect()) as conn:
                 conn.execute(
-                    "DELETE FROM working_memory WHERE session_id = ? AND key = ?",
-                    (session_id, key),
+                    "DELETE FROM working_memory WHERE session_id = ? AND profile_id = ? AND key = ?",
+                    (session_id, pid, key),
                 )
                 conn.commit()
             return True
@@ -812,9 +875,12 @@ class HistoryStorage:
                 )
                 conn.commit()
 
-    def get_working_entry(self, session_id: str, key: str) -> Optional[dict]:
+    def get_working_entry(self, session_id: str, key: str, profile_id: Optional[str] = None) -> Optional[dict]:
         with self._lock:
-            entry = self._working.get(session_id, {}).get(key)
+            if profile_id is None:
+                profile_id = self.resolve_working_profile_id(session_id)
+            pid = self._working_profile_id(profile_id)
+            entry = self._working.get(session_id, {}).get((pid, key))
             return dict(entry) if entry else None
 
     def get_long_term_entry(self, key: str) -> Optional[dict]:
@@ -838,13 +904,19 @@ class HistoryStorage:
             if not key:
                 raise ValueError("Для save нужен непустой 'key'")
             if layer == "working":
-                entry = self.save_working_entry(session_id, {
+                entry_data = {
                     "key": key,
                     "value": op.get("value", ""),
                     "kind": op.get("kind"),
                     "state": op.get("state"),
                     "importance": op.get("importance"),
-                })
+                }
+                # Привязка к профилю: явная из op, иначе — профиль сессии.
+                if "profile_id" in op:
+                    entry_data["profile_id"] = op.get("profile_id") or ""
+                elif session_id:
+                    entry_data["profile_id"] = self.resolve_working_profile_id(session_id)
+                entry = self.save_working_entry(session_id, entry_data)
                 self.log_memory(session_id, "working", "save", key, source)
                 return {"layer": "working", "entry": entry}
             if layer == "long_term":
@@ -870,7 +942,8 @@ class HistoryStorage:
 
         if action == "delete":
             if layer == "working":
-                ok = self.delete_working_entry(session_id, key)
+                profile_id = op.get("profile_id") if "profile_id" in op else None
+                ok = self.delete_working_entry(session_id, key, profile_id)
             elif layer == "long_term":
                 ok = self.delete_long_term_entry(key)
             else:
@@ -892,9 +965,8 @@ class HistoryStorage:
                 if src_entry is None:
                     raise ValueError(f"Запись не найдена: working/{key}")
                 self.delete_working_entry(session_id, key)
-                profile_id = op.get("profile_id")
-                if profile_id is None and session_id:
-                    profile_id = self.get_session_profile(session_id)
+                # Сохраняем привязку к профилю рабочей записи ('' → общая в long_term).
+                profile_id = op.get("profile_id") if "profile_id" in op else src_entry.get("profile_id")
                 target = self.save_long_term_entry({
                     "key": key,
                     "profile_id": profile_id,
@@ -926,7 +998,7 @@ class HistoryStorage:
         Долговременная память возвращается в разрезе профиля сессии:
         общие записи + привязанные к профилю этой сессии.
         """
-        working = self.load_working(session_id)
+        working = self.load_working(session_id, self.resolve_working_profile_id(session_id))
         long_term = self.load_long_term_for_profile(self.get_session_profile(session_id))
         return {
             "short_term": {"message_count": len(self.load(session_id) or [])},

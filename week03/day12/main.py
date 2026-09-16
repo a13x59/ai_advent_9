@@ -493,9 +493,8 @@ async def agent_endpoint(request: AgentRequest):
     window_size = request.window_size if request.window_size >= 1 else DEFAULT_WINDOW_SIZE
 
     try:
-        # 1. Восстановление сессии и рабочей памяти.
+        # 1. Восстановление сессии.
         conversation = storage.load(agent_id)
-        working = storage.load_working(agent_id)
 
         # Профиль пользователя (персонализация). Порядок разрешения:
         # явный из запроса > привязанный к сессии > глобальный активный.
@@ -510,8 +509,11 @@ async def agent_endpoint(request: AgentRequest):
             if profile is None:
                 profile = storage.get_active_profile()
 
-        # Долговременная память в разрезе профиля: общие записи + привязанные к профилю.
-        long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
+        # Рабочая память в разрезе профиля (у каждого профиля свой список задач),
+        # долговременная — общие записи + привязанные к профилю.
+        working_profile_id = profile["profile_id"] if profile else ""
+        # working = storage.load_working(agent_id, working_profile_id)
+        # long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
         current_user_message = next(
             (m for m in reversed(request.messages) if m.get("role") == "user"),
@@ -543,7 +545,7 @@ async def agent_endpoint(request: AgentRequest):
                 memory_ops_applied.append(storage.apply_memory_op(agent_id, op, source="manual"))
             except Exception as e:
                 logger.warning("Ошибка применения memory_op %s: %s", op, e)
-        working = storage.load_working(agent_id)
+        working = storage.load_working(agent_id, working_profile_id)
         long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
@@ -665,7 +667,7 @@ async def suggest_endpoint(session_id: str, request: SuggestRequest):
     )
     if message is None:
         raise HTTPException(status_code=400, detail="Нет сообщения пользователя для анализа")
-    working = storage.load_working(session_id)
+    working = storage.load_working(session_id, storage.resolve_working_profile_id(session_id))
     long_term = storage.load_long_term_for_profile(storage.get_session_profile(session_id))
     suggestion, s_inp, s_out = suggest_memory(working, long_term, message.get("content", ""), request.model)
     return {
@@ -769,7 +771,7 @@ async def get_agent_history(session_id: str):
     if meta is None:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
     messages = storage.load(session_id)
-    working = storage.load_working(session_id)
+    working = storage.load_working(session_id, storage.resolve_working_profile_id(session_id))
     profile_id = storage.get_session_profile(session_id)
     long_term = storage.load_long_term_for_profile(profile_id)
     branches = storage.list_branches(session_id)
