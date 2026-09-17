@@ -2104,9 +2104,21 @@
         }).join('');
     }
 
+    async function loadTaskHistory(taskId) {
+        // Показать историю именно этой задачи (изоляция: каждая задача — свой чат).
+        if (!sessionId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`);
+            const msgs = (data.task && data.task.messages) || [];
+            history = msgs.length ? msgs : [];
+            renderChat();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
     async function selectTask(taskId) {
         currentTaskId = taskId;
         renderTask();
+        await loadTaskHistory(taskId);
     }
 
     async function pauseCurrentTask() {
@@ -2114,6 +2126,7 @@
         if (!t || !sessionId) return;
         await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/pause`, {method: 'POST'});
         await loadTasks();
+        await loadTaskHistory(t.task_id);
     }
 
     async function resumeCurrentTask() {
@@ -2121,6 +2134,7 @@
         if (!t || !sessionId) return;
         await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/resume`, {method: 'POST'});
         await loadTasks();
+        await loadTaskHistory(t.task_id);
     }
 
     async function createNewTask() {
@@ -2136,6 +2150,7 @@
         });
         currentTaskId = data.task.task_id;
         await loadTasks();
+        await loadTaskHistory(data.task.task_id);
         closeModal('taskModal');
     }
 
@@ -2162,6 +2177,7 @@
 
         const strategy = strategyEl.value;
         const windowSize = parseInt(windowSizeEl.value) || 5;
+        const prevTaskId = currentTaskId;
 
         history.push({role: 'user', content: userMessage});
         messageEl.value = '';
@@ -2205,7 +2221,17 @@
                 sessionId = data.session_id;
                 localStorage.setItem('agentSessionId', sessionId);
             }
-            history.push({role: 'assistant', content: data.response});
+
+            // Если по этому сообщению завелась НОВАЯ задача — очищаем чат от
+            // сообщений предыдущей задачи и показываем только новый обмен.
+            if (data.task && data.task.task_id !== prevTaskId) {
+                history = [
+                    {role: 'user', content: userMessage},
+                    {role: 'assistant', content: data.response},
+                ];
+            } else {
+                history.push({role: 'assistant', content: data.response});
+            }
             renderChat();
 
             memory = data.memory || {working: [], long_term: []};
@@ -2298,34 +2324,35 @@
     async function restoreSession(savedId) {
         try {
             const data = await apiFetch(`/agent/${encodeURIComponent(savedId)}`);
-            if (data.messages && data.messages.length) {
-                history = data.messages;
-                sessionId = data.session_id || savedId;
-                branches = data.branches || [];
-                currentBranchId = data.current_branch || null;
-                sessionProfileId = data.profile_id || null;
-                memory = {working: data.working || [], long_term: data.long_term || []};
-                pendingMemory = [];
-                tasks = data.tasks || [];
-                currentTaskId = data.active_task_id || null;
-                if (data.strategy) strategyEl.value = data.strategy;
-                if (data.window_size != null) windowSizeEl.value = data.window_size;
-                const win = data.window_size || 5;
-                renderBranches();
-                updateBranchControlsVisibility();
-                renderMemory();
-                renderPending();
-                renderTask();
-                renderContext({
-                    strategy: data.strategy, total_messages: history.length, window_size: win,
-                    working_count: memory.working.length, long_term_count: memory.long_term.length,
-                    branch: {id: currentBranchId}, branches: branches,
-                    sent_messages: data.strategy === 'branching' ? history.length : Math.min(history.length, win),
-                    discarded_messages: data.strategy === 'branching' ? 0 : Math.max(0, history.length - win),
-                }, false);
-                return true;
-            }
-            return false;
+            sessionId = data.session_id || savedId;
+            branches = data.branches || [];
+            currentBranchId = data.current_branch || null;
+            sessionProfileId = data.profile_id || null;
+            memory = {working: data.working || [], long_term: data.long_term || []};
+            pendingMemory = [];
+            tasks = data.tasks || [];
+            currentTaskId = data.active_task_id || null;
+            // История: показываем сообщения активной задачи, иначе — сессии.
+            const active = tasks.find(t => t.task_id === currentTaskId);
+            history = (active && active.messages && active.messages.length)
+                ? active.messages
+                : (data.messages || []);
+            if (data.strategy) strategyEl.value = data.strategy;
+            if (data.window_size != null) windowSizeEl.value = data.window_size;
+            const win = data.window_size || 5;
+            renderBranches();
+            updateBranchControlsVisibility();
+            renderMemory();
+            renderPending();
+            renderTask();
+            renderContext({
+                strategy: data.strategy, total_messages: history.length, window_size: win,
+                working_count: memory.working.length, long_term_count: memory.long_term.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: data.strategy === 'branching' ? history.length : Math.min(history.length, win),
+                discarded_messages: data.strategy === 'branching' ? 0 : Math.max(0, history.length - win),
+            }, false);
+            return true;
         } catch (err) {
             return false;
         }

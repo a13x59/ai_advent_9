@@ -238,6 +238,7 @@ class HistoryStorage:
                         expected_action TEXT NOT NULL DEFAULT 'wait_user',
                         plan            TEXT NOT NULL DEFAULT '[]',
                         resume_note     TEXT NOT NULL DEFAULT '',
+                        messages        TEXT NOT NULL DEFAULT '[]',
                         created_at      TEXT NOT NULL,
                         updated_at      TEXT NOT NULL
                     )
@@ -294,7 +295,8 @@ class HistoryStorage:
                 ).fetchall()
                 task_rows = conn.execute(
                     "SELECT task_id, session_id, title, stage, status, step_index, step_total, "
-                    "step_label, expected_action, plan, resume_note, created_at, updated_at FROM tasks"
+                    "step_label, expected_action, plan, resume_note, messages, "
+                    "created_at, updated_at FROM tasks"
                 ).fetchall()
 
             self._sessions = {}
@@ -381,6 +383,7 @@ class HistoryStorage:
                     "expected_action": row["expected_action"],
                     "plan": json.loads(row["plan"] or "[]"),
                     "resume_note": row["resume_note"],
+                    "messages": json.loads(row["messages"] or "[]"),
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
@@ -1088,8 +1091,8 @@ class HistoryStorage:
             """
             INSERT INTO tasks
                 (task_id, session_id, title, stage, status, step_index, step_total,
-                 step_label, expected_action, plan, resume_note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 step_label, expected_action, plan, resume_note, messages, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(task_id) DO UPDATE SET
                 title           = excluded.title,
                 stage           = excluded.stage,
@@ -1100,6 +1103,7 @@ class HistoryStorage:
                 expected_action = excluded.expected_action,
                 plan            = excluded.plan,
                 resume_note     = excluded.resume_note,
+                messages        = excluded.messages,
                 updated_at      = excluded.updated_at
             """,
             (
@@ -1114,6 +1118,7 @@ class HistoryStorage:
                 task["expected_action"],
                 json.dumps(task["plan"], ensure_ascii=False),
                 task["resume_note"],
+                json.dumps(task.get("messages") or [], ensure_ascii=False),
                 task["created_at"],
                 task["updated_at"],
             ),
@@ -1169,6 +1174,7 @@ class HistoryStorage:
                     "expected_action": "wait_user",
                     "plan": [],
                     "resume_note": "",
+                    "messages": [],
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -1216,6 +1222,30 @@ class HistoryStorage:
         with self._lock:
             task = self._tasks.get(task_id)
             return dict(task) if task else None
+
+    def load_task_messages(self, task_id: str) -> Optional[List[dict]]:
+        """История сообщений конкретной задачи (изолирована от других задач)."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            return [dict(m) for m in (task.get("messages") or [])]
+
+    def save_task_messages(self, task_id: str, messages: List[dict]) -> None:
+        """Сохраняет историю сообщений задачи."""
+        now = _now()
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            task["messages"] = [dict(m) for m in messages]
+            task["updated_at"] = now
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    "UPDATE tasks SET messages = ?, updated_at = ? WHERE task_id = ?",
+                    (json.dumps(task["messages"], ensure_ascii=False), now, task_id),
+                )
+                conn.commit()
 
     def list_tasks(self, session_id: str) -> List[dict]:
         with self._lock:

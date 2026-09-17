@@ -14,9 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from storage import storage, WORKING_KINDS, WORKING_STATES, LONG_TERM_KINDS
 from task_state import (
-    TASK_STATE_SYSTEM,
-    TASK_STATE_TOOL,
     apply_state_update,
+    forward_stage_path,
+    normalize_stage,
     render_task_block,
     render_resume_instruction,
 )
@@ -98,9 +98,9 @@ class AgentRequest(BaseModel):
     # Профиль пользователя (персонализация). Если не задан — берётся активный профиль.
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
     # Задача (конечный автомат). Если task_id не задан — используется активная
-    # задача сессии, либо создаётся новая (с task_title).
+    # задача сессии; задача создаётся моделью (tool call), только если запрос
+    # действительно многошаговый.
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
-    task_title: Optional[str] = Field(None, description="Название новой задачи (если создаём)")
 
 
 class BranchRequest(BaseModel):
@@ -184,7 +184,7 @@ def estimate_messages_tokens(messages) -> int:
     return total
 
 
-def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None, tools=None):
+def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
@@ -200,8 +200,6 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
         payload["stop"] = stop
     if top_k:
         payload["top_k"] = top_k
-    if tools is not None:
-        payload["tools"] = tools
 
     response = requests.post(DEEPSEEK_API_URL, json=payload, headers=headers, timeout=60)
     if response.status_code != 200:
@@ -209,7 +207,7 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
     return response.json()
 
 
-def call_deepseek(messages, request: AgentRequest, tools=None):
+def call_deepseek(messages, request: AgentRequest):
     return call_deepseek_raw(
         messages,
         model=request.model,
@@ -218,26 +216,65 @@ def call_deepseek(messages, request: AgentRequest, tools=None):
         max_tokens=request.max_tokens,
         top_k=request.top_k,
         stop=request.stop,
-        tools=tools,
     )
 
 
 # ============================================================
-# Конечный автомат задачи: извлечение перехода из ответа модели
+# Классификация запроса и детерминированный переход автомата
 # ============================================================
-def extract_task_update(data) -> Optional[dict]:
-    """Достаёт аргументы tool call update_task_state из ответа DeepSeek."""
-    choice = data.get("choices", [{}])[0]
-    message = choice.get("message", {})
-    for tc in message.get("tool_calls") or []:
-        fn = tc.get("function") or {}
-        if fn.get("name") == "update_task_state":
-            args = fn.get("arguments") or "{}"
-            try:
-                return json.loads(args)
-            except Exception:
-                return None
-    return None
+# Глаголы-императивы, указывающие на многошаговую задачу (детерминированный
+# классификатор — одинаково работает и в моке, и с реальным API).
+TASK_VERBS = (
+    "напиши", "напишите", "сделай", "сделайте", "реализуй", "реализуйте",
+    "создай", "создайте", "разработай", "разработайте", "исправь", "исправьте",
+    "настрой", "настройте", "добавь", "добавьте", "сгенерируй", "сгенерируйте",
+    "построй", "постройте", "перенеси", "мигрируй", "проверь", "протестируй",
+    "составь", "составьте", "придумай", "придумайте", "подготовь", "подготовьте",
+    "почини", "оптимизируй", "перепиши", "отрефактори",
+)
+
+# Слова-сигналы «продолжить текущую задачу».
+CONTINUE_WORDS = ("продолжай", "продолжи", "дальше", "continue", "next", "ок", "да", "го")
+
+# Вопросительные слова — признак, что пользователь задаёт НОВЫЙ вопрос,
+# а не отвечает на вопрос агента (тогда автомат двигать не нужно).
+QUESTION_WORDS = (
+    "кто", "что", "почему", "зачем", "как", "какой", "какая", "какие", "какое",
+    "когда", "где", "сколько", "чей", "чья", "чьё", "чем", "кому", "кого",
+    "откуда", "куда", "ли",
+)
+
+
+def _detect_task(user_message: str) -> bool:
+    """Эвристика «это задача, а не вопрос» по глаголам-императивам."""
+    t = (user_message or "").strip().lower()
+    if not t:
+        return False
+    for verb in TASK_VERBS:
+        if re.search(r"\b" + re.escape(verb) + r"\b", t):
+            return True
+    return False
+
+
+def _is_continue(user_message: str) -> bool:
+    t = (user_message or "").strip().lower().rstrip("!.? ")
+    return t in CONTINUE_WORDS or "продолж" in t or "дальше" in t
+
+
+def _is_question(user_message: str) -> bool:
+    """True, если сообщение похоже на новый вопрос (а не ответ агенту)."""
+    t = (user_message or "").strip().lower()
+    if not t:
+        return False
+    if t.endswith("?"):
+        return True
+    first_word = (t.split() or [""])[0]
+    return first_word in QUESTION_WORDS
+
+
+def _mock_title(user_message: str) -> str:
+    t = re.sub(r"\s+", " ", (user_message or "").strip())
+    return t[:60] if t else "Задача"
 
 
 def _mock_plan(user_message: str) -> List[dict]:
@@ -264,31 +301,45 @@ def _mock_plan(user_message: str) -> List[dict]:
     return [{"index": i + 1, "label": label, "state": "pending"} for i, label in enumerate(labels)]
 
 
-def mock_task_turn(task: dict, user_message: str) -> tuple:
-    """Детерминированный мок конечного автомата. Возвращает (content, task_update)."""
-    stage = task["stage"]
-    content = ""
-    update = None
+def _task_state_update(task: Optional[dict], user_message: str) -> Optional[dict]:
+    """Детерминированный переход конечного автомата.
 
-    if stage == "planning":
+    Используется И в моке, И с реальным API — состояние задачи полностью формально
+    и не зависит от «настроения» модели. Возвращает словарь-обновление или None
+    (задача завершена, двигать некуда).
+    """
+    if task is None:
+        if not _detect_task(user_message):
+            return None  # «продолжай» без задачи — ничего не заводим
+        title = _mock_title(user_message)
         plan = _mock_plan(user_message)
-        total = len(plan)
         plan[0]["state"] = "in_progress"
-        content = (
-            f"Эхо (mock). Составил план задачи «{task['title']}»:\n"
-            + "\n".join(f"{s['index']}. {s['label']}" for s in plan)
-            + "\n\nПерехожу к выполнению (этап execution)."
-        )
-        update = {
+        return {
+            "title": title,
             "stage": "execution",
             "step_index": 1,
-            "step_total": total,
+            "step_total": len(plan),
+            "step_label": plan[0]["label"],
+            "expected_action": "wait_user",
+            "plan": plan,
+            "reason": "Обнаружена многошаговая задача, план готов",
+        }
+
+    stage = task["stage"]
+    if stage == "planning":
+        plan = _mock_plan(user_message)
+        plan[0]["state"] = "in_progress"
+        return {
+            "stage": "execution",
+            "step_index": 1,
+            "step_total": len(plan),
             "step_label": plan[0]["label"],
             "expected_action": "wait_user",
             "plan": plan,
             "reason": "План готов, начинаю выполнение",
         }
-    elif stage == "execution":
+
+    if stage == "execution":
         idx = task["step_index"]
         total = task["step_total"] or len(task["plan"])
         plan = [dict(s) for s in task["plan"]]
@@ -296,8 +347,7 @@ def mock_task_turn(task: dict, user_message: str) -> tuple:
             if s["index"] == idx:
                 s["state"] = "done"
         if idx >= total:
-            content = "Эхо (mock). Все шаги выполнены. Перехожу к валидации (этап validation)."
-            update = {
+            return {
                 "stage": "validation",
                 "step_index": total,
                 "step_total": total,
@@ -306,27 +356,22 @@ def mock_task_turn(task: dict, user_message: str) -> tuple:
                 "plan": plan,
                 "reason": "Выполнение завершено, проверяю результат",
             }
-        else:
-            nxt = idx + 1
-            for s in plan:
-                if s["index"] == nxt:
-                    s["state"] = "in_progress"
-            content = (
-                f"Эхо (mock). Выполнил шаг {idx}/{total}: {plan[idx - 1]['label']}.\n"
-                f"Следующий шаг {nxt}/{total}: {plan[nxt - 1]['label']}."
-            )
-            update = {
-                "stage": "execution",
-                "step_index": nxt,
-                "step_total": total,
-                "step_label": plan[nxt - 1]["label"],
-                "expected_action": "wait_user",
-                "plan": plan,
-                "reason": f"Шаг {idx} готов, перехожу к шагу {nxt}",
-            }
-    elif stage == "validation":
-        content = "Эхо (mock). Валидация пройдена. Задача завершена (этап done)."
-        update = {
+        nxt = idx + 1
+        for s in plan:
+            if s["index"] == nxt:
+                s["state"] = "in_progress"
+        return {
+            "stage": "execution",
+            "step_index": nxt,
+            "step_total": total,
+            "step_label": plan[nxt - 1]["label"],
+            "expected_action": "wait_user",
+            "plan": plan,
+            "reason": f"Шаг {idx} готов, перехожу к шагу {nxt}",
+        }
+
+    if stage == "validation":
+        return {
             "stage": "done",
             "step_index": task["step_total"],
             "step_total": task["step_total"],
@@ -335,11 +380,115 @@ def mock_task_turn(task: dict, user_message: str) -> tuple:
             "plan": task["plan"],
             "reason": "Результат проверен, задача готова",
         }
-    else:  # done
-        content = "Эхо (mock). Задача уже завершена."
-        update = None
 
-    return content, update
+    return None  # done
+
+
+def _mock_reply(task: Optional[dict], user_message: str, was_paused: bool = False) -> str:
+    """Описательный ответ мока по текущему (уже обновлённому) состоянию задачи."""
+    if task is None:
+        if _is_continue(user_message):
+            return "Эхо (mock). Нет активной задачи — опишите, что нужно сделать."
+        return f"Эхо (mock): {user_message}"
+    if was_paused:
+        return (
+            f"Эхо (mock). Задача «{task['title']}» возобновлена. "
+            f"Продолжаю без повторных объяснений: этап {task['stage']}, "
+            f"шаг {task['step_index']}/{task['step_total']} ({task['step_label']})."
+        )
+    stage = task["stage"]
+    if stage == "done":
+        return "Эхо (mock). Валидация пройдена. Задача завершена (этап done)."
+    if stage == "validation":
+        return "Эхо (mock). Все шаги выполнены. Перехожу к валидации (этап validation)."
+    if stage == "execution":
+        idx = task["step_index"]
+        total = task["step_total"]
+        label = task["step_label"]
+        plan = task["plan"] or []
+        if idx == 1:
+            plan_text = "\n".join(f"{s['index']}. {s['label']}" for s in plan)
+            return (
+                f"Эхо (mock). План задачи «{task['title']}»:\n{plan_text}\n\n"
+                f"Начинаю шаг 1/{total}: {label}."
+            )
+        return f"Эхо (mock). Выполняю шаг {idx}/{total}: {label}."
+    return f"Эхо (mock). Этап {stage}."
+
+
+# Скрытый маркер прогресса: модель (реальный API) сообщает фактическое состояние.
+STATE_MARKER_INSTRUCTION = (
+    "В конце ответа, отдельной строкой, укажи фактический прогресс задачи строго в формате:\n"
+    "[STATE] {\"stage\": \"<planning|execution|validation|done>\", "
+    "\"step_index\": <номер шага>, \"step_total\": <всего шагов>, "
+    "\"expected_action\": \"<model_call|wait_user|confirm|done>\"}\n"
+    "Это технический маркер (не показывай его как часть ответа пользователю). "
+    "stage=done ставь только если задача полностью выполнена. Если за этот ответ "
+    "пройдено несколько шагов — укажи итоговый step_index."
+)
+
+
+def _extract_state_marker(content: str) -> tuple:
+    """Вынимает строку с маркером [STATE] {...} из ответа модели.
+
+    Возвращает (update, clean_content): update — словарь прогресса или None,
+    clean_content — ответ без строки-маркера.
+    """
+    if not content:
+        return None, content
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        if "[STATE]" not in line:
+            continue
+        update = None
+        json_part = line.split("[STATE]", 1)[1].strip()
+        try:
+            parsed = json.loads(json_part)
+            if isinstance(parsed, dict):
+                update = parsed
+        except Exception:
+            update = None
+        del lines[i]
+        return update, "\n".join(lines).strip()
+    return None, content
+
+
+def _apply_task_transition(agent_id: str, task: Optional[dict], task_update: Optional[dict]) -> Optional[dict]:
+    """Применяет переход конечного автомата (создаёт задачу, если нужно).
+
+    Переходы идут СТРОГО по таблице разрешённых переходов: если модель сообщает
+    этап на несколько шагов вперёд (execution → done), цепочка выполняется
+    поэтапно через промежуточные (execution → validation → done), без перескока.
+    """
+    if not task_update:
+        return task
+    if task is None:
+        if not task_update.get("title") and not task_update.get("plan"):
+            return task
+        task = storage.create_task(agent_id, title=str(task_update.get("title") or ""))
+
+    target_stage = normalize_stage(task_update.get("stage"), task["stage"])
+    path = forward_stage_path(task["stage"], target_stage)
+
+    result = task
+    if not path:
+        # Один легальный переход (или шаг внутри этапа).
+        fields, transition = apply_state_update(result, task_update)
+        return storage.update_task(
+            result["task_id"], fields, source="model", reason=transition["reason"]
+        )
+
+    # Цепочка переходов без перескока этапов.
+    for stage in path:
+        hop = dict(task_update)
+        hop["stage"] = stage
+        if stage == "validation" and not hop.get("step_label"):
+            hop["step_label"] = "проверка результата"
+        fields, transition = apply_state_update(result, hop)
+        result = storage.update_task(
+            result["task_id"], fields, source="model", reason=transition["reason"]
+        )
+    return result
 
 
 def _require_task(session_id: str, task_id: str) -> dict:
@@ -349,14 +498,12 @@ def _require_task(session_id: str, task_id: str) -> dict:
     return task
 
 
-def _resolve_or_create_task(session_id: str, task_id: Optional[str], title: Optional[str]) -> dict:
-    """Определяет задачу для запроса: явная → активная → новая."""
+def _resolve_task(session_id: str, task_id: Optional[str]) -> Optional[dict]:
+    """Определяет задачу для запроса: явная → активная → None (задачу НЕ создаём
+    заранее — она заводится моделью только когда запрос действительно многошаговый)."""
     if task_id:
         return _require_task(session_id, task_id)
-    task = storage.get_active_task(session_id)
-    if task is None:
-        task = storage.create_task(session_id, title=(title or ""))
-    return task
+    return storage.get_active_task(session_id)
 
 
 # ============================================================
@@ -569,11 +716,12 @@ def build_profile_system_block(profile) -> str:
     return "\n".join(lines)
 
 
-def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None, task=None, resume_instruction=None):
+def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None, task=None, resume_instruction=None, report_state=False):
     """Собирает сообщения модели из профиля, состояния задачи и трёх слоёв памяти.
 
     • профиль          — системный блок (всегда, если задан);
-    • состояние задачи — инструкция контроллера + блок конечного автомата;
+    • состояние задачи — блок конечного автомата (если есть активная задача);
+    • маркер прогресса — инструкция [STATE] (report_state=True, реальный API);
     • краткосрочная    — окно последних N (или полная ветка для branching);
     • рабочая          — системный блок (всегда);
     • долговременная   — системный блок (для sticky_facts — только факты kind=fact).
@@ -588,12 +736,13 @@ def build_request_messages(strategy, conversation, working, long_term, window_si
     if profile_block:
         messages.append({"role": "system", "content": profile_block})
     if task:
-        messages.append({"role": "system", "content": TASK_STATE_SYSTEM})
         task_block = render_task_block(task)
         if task_block:
             messages.append({"role": "system", "content": task_block})
         if resume_instruction:
             messages.append({"role": "system", "content": resume_instruction})
+        if report_state:
+            messages.append({"role": "system", "content": STATE_MARKER_INSTRUCTION})
     if block:
         messages.append({"role": "system", "content": block})
     if strategy == STRATEGY_BRANCHING:
@@ -637,8 +786,12 @@ async def agent_endpoint(request: AgentRequest):
     window_size = request.window_size if request.window_size >= 1 else DEFAULT_WINDOW_SIZE
 
     try:
-        # 1. Восстановление сессии.
-        conversation = storage.load(agent_id)
+        # 1. Последнее сообщение пользователя — единственный новый ввод.
+        current_user_message = next(
+            (m for m in reversed(request.messages) if m.get("role") == "user"),
+            None,
+        )
+        user_text = current_user_message.get("content", "") if current_user_message else ""
 
         # Профиль пользователя (персонализация). Порядок разрешения:
         # явный из запроса > привязанный к сессии > глобальный активный.
@@ -656,25 +809,17 @@ async def agent_endpoint(request: AgentRequest):
         # Рабочая память в разрезе профиля (у каждого профиля свой список задач),
         # долговременная — общие записи + привязанные к профилю.
         working_profile_id = profile["profile_id"] if profile else ""
-        # working = storage.load_working(agent_id, working_profile_id)
-        # long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
-        current_user_message = next(
-            (m for m in reversed(request.messages) if m.get("role") == "user"),
-            None,
-        )
-
-        if conversation is None:
-            conversation = list(request.messages)
+        # 2. Сессия: только метаданные (стратегия/профиль). Сообщения хранятся
+        #    отдельно: у задачи — в самой задаче, у обычного чата — в сессии.
+        if storage.get_session_meta(agent_id) is None:
             storage.create_session(
                 agent_id, strategy=strategy, window_size=window_size,
-                messages=conversation,
+                messages=[],
                 profile_id=profile["profile_id"] if profile else None,
             )
         else:
             storage.set_session_meta(agent_id, strategy, window_size)
-            if current_user_message and (not conversation or conversation[-1] != current_user_message):
-                conversation.append(current_user_message)
 
         # Привязка профиля к сессии — намеренное действие: только при явном profile_id
         # в запросе (новая сессия уже получила профиль при create_session). Простое
@@ -692,13 +837,59 @@ async def agent_endpoint(request: AgentRequest):
         working = storage.load_working(agent_id, working_profile_id)
         long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
-        # 2.5. Задача (конечный автомат). Явная → активная → новая.
-        task = _resolve_or_create_task(agent_id, request.task_id, request.task_title)
-        was_paused = task["status"] == "paused"
-        if was_paused:
-            # Сообщение пришло к задаче на паузе → возобновляем и продолжаем с того же места.
-            task = storage.resume_task(task["task_id"])
-        resume_instruction = render_resume_instruction(task) if was_paused else None
+        # 2.5. Задача (конечный автомат). Классификация запроса:
+        #      • новая инструкция («напиши/сделай/…») → ВСЕГДА новая задача,
+        #        переданный task_id игнорируется, текущая активная уходит в паузу;
+        #      • «продолжай/дальше» → продолжить целевую задачу (резюм, если на паузе);
+        #      • ответ на вопрос агента (когда задача ждёт ввода: wait_user/confirm)
+        #        → продвинуть задачу, даже если это короткий ответ «2», «первый», «да»;
+        #      • вопрос/общение → ответить, автомат не двигать и задачу не создавать.
+        is_new_task = _detect_task(user_text)
+        is_continue = _is_continue(user_text)
+
+        if is_new_task:
+            task = None
+            was_paused = False
+            resume_instruction = None
+            mode = "task"
+        else:
+            task = _resolve_task(agent_id, request.task_id)
+            was_paused = False
+            resume_instruction = None
+            awaiting = (
+                task is not None
+                and task["status"] == "active"
+                and task.get("expected_action") in ("wait_user", "confirm")
+            )
+            if is_continue and task is not None:
+                was_paused = task["status"] == "paused"
+                if was_paused:
+                    # Продолжаем с того же места без повторных объяснений.
+                    task = storage.resume_task(task["task_id"])
+                resume_instruction = render_resume_instruction(task) if was_paused else None
+                mode = "task"
+            elif awaiting and not _is_question(user_text):
+                # Пользователь ответил на уточняющий вопрос агента — двигаем задачу.
+                mode = "task"
+            else:
+                mode = "chat"
+
+        # 2.6. Для НОВОЙ задачи заранее заводим оболочку с планом, чтобы модель
+        #      видела план в контексте и следовала ему.
+        is_mock = API_KEY == "sk-1234567890"
+        task_was_none = mode == "task" and task is None
+        if task_was_none:
+            task = _apply_task_transition(agent_id, None, _task_state_update(None, user_text))
+
+        # 2.7. Контекст диалога. У каждой задачи СВОЯ история сообщений (изоляция:
+        #      при переключении задач модель не видит чужие сообщения), обычный чат
+        #      без задачи идёт в историю сессии.
+        if task is not None:
+            conversation = storage.load_task_messages(task["task_id"]) or []
+        else:
+            conversation = storage.load(agent_id) or []
+        if current_user_message and (not conversation or conversation[-1] != current_user_message):
+            conversation.append(current_user_message)
 
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
         suggest_cost = 0.0
@@ -717,18 +908,26 @@ async def agent_endpoint(request: AgentRequest):
         request_messages = build_request_messages(
             strategy, conversation, working, long_term, window_size,
             profile=profile, task=task, resume_instruction=resume_instruction,
+            report_state=(mode == "task" and not is_mock),
         )
 
         raw_context_tokens = estimate_messages_tokens(conversation)
         context_tokens = estimate_messages_tokens(request_messages)
 
-        # 5. Вызов модели. Один вызов возвращает и ответ, и предложение перехода
-        #    конечного автомата (tool call / мок) — экономим вызовы.
-        task_update = None
-        if API_KEY == "sk-1234567890":
-            content, task_update = mock_task_turn(
-                task, current_user_message.get("content", "") if current_user_message else ""
-            )
+        # 5. Вызов модели + переход конечного автомата.
+        #    • мок — детерминированный переход (код) + описательный ответ;
+        #    • реальный API — модель сама сообщает фактический прогресс маркером
+        #      [STATE] {...} (его вырезаем из ответа); без маркера — детерминированный
+        #      фолбэк. Это держит состояние в синхроне с реальной работой модели.
+        if is_mock:
+            if mode == "task":
+                if not task_was_none:
+                    task = _apply_task_transition(
+                        agent_id, task, _task_state_update(task, user_text)
+                    )
+                content = _mock_reply(task, user_text, was_paused)
+            else:
+                content = f"Эхо (mock): {user_text}"
             prompt_tokens = estimate_messages_tokens(request_messages)
             completion_tokens = estimate_tokens(content)
             data = {
@@ -741,13 +940,20 @@ async def agent_endpoint(request: AgentRequest):
                 },
             }
         else:
-            data = call_deepseek(request_messages, request, tools=[TASK_STATE_TOOL])
-            task_update = extract_task_update(data)
+            data = call_deepseek(request_messages, request)
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if mode == "task":
+                marker_update, content = _extract_state_marker(content)
+                if marker_update is not None:
+                    task = _apply_task_transition(agent_id, task, marker_update)
+                elif not task_was_none:
+                    # Маркера нет — детерминированный фолбэк на один шаг.
+                    task = _apply_task_transition(
+                        agent_id, task, _task_state_update(task, user_text)
+                    )
 
         duration = time.time() - start_time
 
-        choice = data.get("choices", [{}])[0]
-        content = choice.get("message", {}).get("content", "")
         usage = data.get("usage", {})
 
         completion_tokens = usage.get("completion_tokens")
@@ -762,16 +968,13 @@ async def agent_endpoint(request: AgentRequest):
             history_tokens = raw_context_tokens
         total_tokens = prompt_tokens + completion_tokens
 
-        # 5.5. Применяем переход конечного автомата (валидация в task_state).
-        if task_update:
-            fields, transition = apply_state_update(task, task_update)
-            task = storage.update_task(
-                task["task_id"], fields, source="model", reason=transition["reason"]
-            )
-
-        # 6. Сохраняем ответ в краткосрочную память (активная ветка).
+        # 6. Сохраняем ответ в историю: сообщения задачи — в саму задачу,
+        #    сообщения обычного чата — в сессию.
         conversation.append({"role": "assistant", "content": content})
-        storage.save(agent_id, conversation)
+        if task is not None:
+            storage.save_task_messages(task["task_id"], conversation)
+        else:
+            storage.save(agent_id, conversation)
         storage.set_session_meta(agent_id, strategy, window_size)
 
         context_summary = build_context_summary(strategy, conversation, working, long_term, window_size, agent_id)

@@ -11,12 +11,13 @@
 несколько задач, но активной (не на паузе) — только одна.
 
 Архитектурное разделение:
-  • модель (LLM) ПРЕДЛАГАЕТ переходы через tool call `update_task_state`;
-  • этот модуль ВАЛИДИРУЕТ переходы по таблице разрешённых переходов,
-    нормализует значения и рендерит состояние в контекст.
+  • модель (LLM) сообщает прогресс через скрытый маркер [STATE] {...} (реальный API)
+    или используется детерминированный переход (мок/фолбэк);
+  • этот модуль ВАЛИДИРУЕТ переход (только вперёд по этапам), нормализует
+    значения и рендерит состояние в контекст.
 
-Таким образом конечный автомат — источник истины: модель не может перепрыгнуть
-через этапы произвольно, а состояние переживает урезание окна истории.
+Таким образом конечный автомат — источник истины: состояние отражает реальный
+прогресс, не откатывается назад и переживает урезание окна истории.
 """
 from typing import Any, Dict, List, Tuple
 
@@ -32,7 +33,8 @@ EXPECTED_ACTIONS: Tuple[str, ...] = ("model_call", "wait_user", "confirm", "done
 # Состояния шагов плана.
 PLAN_STATES: Tuple[str, ...] = ("pending", "in_progress", "done", "blocked")
 
-# Таблица разрешённых переходов между этапами.
+# Таблица разрешённых переходов между этапами. Перескок через этап ЗАПРЕЩЁН:
+# execution → done невозможно, только execution → validation → done.
 ALLOWED_STAGE_TRANSITIONS: Dict[str, set] = {
     "planning": {"planning", "execution"},
     "execution": {"execution", "validation"},
@@ -70,6 +72,21 @@ def can_transition(from_stage: str, to_stage: str) -> bool:
     if not is_valid_stage(from_stage) or not is_valid_stage(to_stage):
         return False
     return to_stage in ALLOWED_STAGE_TRANSITIONS.get(from_stage, set())
+
+
+def forward_stage_path(from_stage: str, to_stage: str) -> List[str]:
+    """Список промежуточных этапов для движения вперёд СТРОГО по таблице переходов.
+
+    Например, execution → done вернёт ["validation", "done"] — перескок этапа
+    невозможен, но каждый шаг цепочки легален.
+    """
+    if not is_valid_stage(from_stage) or not is_valid_stage(to_stage):
+        return []
+    fi = STAGES.index(from_stage)
+    ti = STAGES.index(to_stage)
+    if ti <= fi:
+        return []
+    return list(STAGES[fi + 1:ti + 1])
 
 
 def coerce_transition(from_stage: str, requested_stage: Any) -> str:
@@ -116,7 +133,8 @@ def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[di
     current_stage = task.get("stage", "planning")
     new_stage = coerce_transition(current_stage, update.get("stage"))
 
-    plan = task.get("plan") or []
+    # Копия, чтобы не мутировать входной словарь задачи.
+    plan = [dict(s) for s in (task.get("plan") or [])]
     if update.get("plan"):
         plan = normalize_plan(update["plan"])
 
@@ -140,6 +158,21 @@ def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[di
         expected_action = normalize_expected_action(
             update.get("expected_action"), task.get("expected_action", "wait_user")
         )
+
+    # Синхронизируем состояния шагов плана с фактическим прогрессом.
+    # На этапах validation/done выполнение считается завершённым — все шаги done.
+    if new_stage in ("validation", "done"):
+        if step_total and step_index < step_total:
+            step_index = step_total
+        for s in plan:
+            s["state"] = "done"
+    else:
+        for s in plan:
+            idx = s.get("index", 0)
+            if step_index and idx < step_index:
+                s["state"] = "done"
+            elif step_index and idx == step_index:
+                s["state"] = "in_progress"
 
     fields = {
         "stage": new_stage,
@@ -202,67 +235,4 @@ def render_resume_instruction(task: Dict[str, Any]) -> str:
     )
 
 
-# Системная инструкция контроллера конечного автомата.
-TASK_STATE_SYSTEM = (
-    "Ты — агент, выполняющий задачу по этапам конечного автомата: "
-    "planning → execution → validation → done. После каждого ответа вызывай инструмент "
-    "update_task_state, чтобы зафиксировать: этап (stage), текущий шаг "
-    "(step_index/step_total/step_label) и ожидаемое действие (expected_action: "
-    "model_call — продолжишь сам, wait_user — ждёшь ввода пользователя, confirm — ждёшь "
-    "подтверждения, done — задача завершена). Переходи по этапам строго по порядку."
-)
 
-
-# Схема tool call для DeepSeek (OpenAI-совместимый формат).
-TASK_STATE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "update_task_state",
-        "description": "Зафиксировать состояние задачи как конечного автомата.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "stage": {
-                    "type": "string",
-                    "enum": list(STAGES),
-                    "description": "Этап задачи",
-                },
-                "step_index": {
-                    "type": "integer",
-                    "description": "Номер текущего шага (начиная с 1)",
-                },
-                "step_total": {
-                    "type": "integer",
-                    "description": "Общее число шагов плана",
-                },
-                "step_label": {
-                    "type": "string",
-                    "description": "Краткое название текущего шага",
-                },
-                "expected_action": {
-                    "type": "string",
-                    "enum": list(EXPECTED_ACTIONS),
-                    "description": "Кто действует дальше",
-                },
-                "plan": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "index": {"type": "integer"},
-                            "label": {"type": "string"},
-                            "state": {"type": "string", "enum": list(PLAN_STATES)},
-                        },
-                        "required": ["index", "label"],
-                    },
-                    "description": "План шагов с состояниями",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Краткое обоснование перехода",
-                },
-            },
-            "required": ["stage", "expected_action"],
-        },
-    },
-}
