@@ -13,6 +13,13 @@ from typing import Optional, List, Union
 from fastapi.middleware.cors import CORSMiddleware
 
 from storage import storage, WORKING_KINDS, WORKING_STATES, LONG_TERM_KINDS
+from task_state import (
+    TASK_STATE_SYSTEM,
+    TASK_STATE_TOOL,
+    apply_state_update,
+    render_task_block,
+    render_resume_instruction,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +97,10 @@ class AgentRequest(BaseModel):
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
     # Профиль пользователя (персонализация). Если не задан — берётся активный профиль.
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
+    # Задача (конечный автомат). Если task_id не задан — используется активная
+    # задача сессии, либо создаётся новая (с task_title).
+    task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
+    task_title: Optional[str] = Field(None, description="Название новой задачи (если создаём)")
 
 
 class BranchRequest(BaseModel):
@@ -126,6 +137,22 @@ class SessionProfileRequest(BaseModel):
     profile_id: Optional[str] = Field(None, description="ID профиля; null/None — отвязать профиль от сессии")
 
 
+class TaskCreateRequest(BaseModel):
+    """Создание задачи в сессии."""
+    title: Optional[str] = Field("", description="Название задачи")
+
+
+class TaskTransitionRequest(BaseModel):
+    """Ручной переход конечного автомата (для отладки/UI)."""
+    stage: str = Field(..., description="Целевой этап")
+    expected_action: Optional[str] = Field("wait_user", description="Ожидаемое действие")
+    step_index: Optional[int] = Field(None, description="Текущий шаг")
+    step_total: Optional[int] = Field(None, description="Всего шагов")
+    step_label: Optional[str] = Field(None, description="Название текущего шага")
+    plan: Optional[List[dict]] = Field(None, description="План шагов")
+    reason: Optional[str] = Field("", description="Причина перехода")
+
+
 # ============================================================
 # Подсчёт токенов
 # ============================================================
@@ -157,38 +184,7 @@ def estimate_messages_tokens(messages) -> int:
     return total
 
 
-def mock_deepseek_response(messages, model, temperature, top_k, top_p, stop, max_tokens, profile=None):
-    user_message = messages[-1]["content"] if messages else ""
-    content = f"Эхо (mock): {user_message}"
-
-    # Демонстрация персонализации без реального API: ответ явно отражает
-    # активный профиль, поэтому разные профили дают видимо разные ответы.
-    if profile:
-        bits = []
-        if profile.get("display_name"):
-            bits.append(f"профиль «{profile['display_name']}»")
-        if profile.get("style"):
-            bits.append(f"стиль: {profile['style']}")
-        if profile.get("format"):
-            bits.append(f"формат: {profile['format']}")
-        if profile.get("constraints"):
-            bits.append(f"ограничения: {profile['constraints']}")
-        content += "\n\n[Персонализация применена] " + " · ".join(bits)
-
-    prompt_tokens = estimate_messages_tokens(messages)
-    completion_tokens = estimate_tokens(content)
-    return {
-        "id": f"mock-{uuid.uuid4()}",
-        "choices": [{"message": {"role": "assistant", "content": content}}],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        }
-    }
-
-
-def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None):
+def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None, tools=None):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
@@ -204,6 +200,8 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
         payload["stop"] = stop
     if top_k:
         payload["top_k"] = top_k
+    if tools is not None:
+        payload["tools"] = tools
 
     response = requests.post(DEEPSEEK_API_URL, json=payload, headers=headers, timeout=60)
     if response.status_code != 200:
@@ -211,7 +209,7 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
     return response.json()
 
 
-def call_deepseek(messages, request: AgentRequest):
+def call_deepseek(messages, request: AgentRequest, tools=None):
     return call_deepseek_raw(
         messages,
         model=request.model,
@@ -220,7 +218,145 @@ def call_deepseek(messages, request: AgentRequest):
         max_tokens=request.max_tokens,
         top_k=request.top_k,
         stop=request.stop,
+        tools=tools,
     )
+
+
+# ============================================================
+# Конечный автомат задачи: извлечение перехода из ответа модели
+# ============================================================
+def extract_task_update(data) -> Optional[dict]:
+    """Достаёт аргументы tool call update_task_state из ответа DeepSeek."""
+    choice = data.get("choices", [{}])[0]
+    message = choice.get("message", {})
+    for tc in message.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        if fn.get("name") == "update_task_state":
+            args = fn.get("arguments") or "{}"
+            try:
+                return json.loads(args)
+            except Exception:
+                return None
+    return None
+
+
+def _mock_plan(user_message: str) -> List[dict]:
+    """Наивный план шагов для мока (без реального API)."""
+    t = (user_message or "").lower()
+    if any(k in t for k in ("калькулятор", "calc")):
+        labels = [
+            "Спроектировать интерфейс калькулятора",
+            "Написать код арифметики",
+            "Проверить на тестовых примерах",
+        ]
+    elif any(k in t for k in ("тест", "test")):
+        labels = [
+            "Определить сценарии тестов",
+            "Написать тесты",
+            "Прогнать и зафиксировать результат",
+        ]
+    else:
+        labels = [
+            "Уточнить требования и ограничения",
+            "Выполнить основную работу",
+            "Проверить результат",
+        ]
+    return [{"index": i + 1, "label": label, "state": "pending"} for i, label in enumerate(labels)]
+
+
+def mock_task_turn(task: dict, user_message: str) -> tuple:
+    """Детерминированный мок конечного автомата. Возвращает (content, task_update)."""
+    stage = task["stage"]
+    content = ""
+    update = None
+
+    if stage == "planning":
+        plan = _mock_plan(user_message)
+        total = len(plan)
+        plan[0]["state"] = "in_progress"
+        content = (
+            f"Эхо (mock). Составил план задачи «{task['title']}»:\n"
+            + "\n".join(f"{s['index']}. {s['label']}" for s in plan)
+            + "\n\nПерехожу к выполнению (этап execution)."
+        )
+        update = {
+            "stage": "execution",
+            "step_index": 1,
+            "step_total": total,
+            "step_label": plan[0]["label"],
+            "expected_action": "wait_user",
+            "plan": plan,
+            "reason": "План готов, начинаю выполнение",
+        }
+    elif stage == "execution":
+        idx = task["step_index"]
+        total = task["step_total"] or len(task["plan"])
+        plan = [dict(s) for s in task["plan"]]
+        for s in plan:
+            if s["index"] == idx:
+                s["state"] = "done"
+        if idx >= total:
+            content = "Эхо (mock). Все шаги выполнены. Перехожу к валидации (этап validation)."
+            update = {
+                "stage": "validation",
+                "step_index": total,
+                "step_total": total,
+                "step_label": "проверка результата",
+                "expected_action": "wait_user",
+                "plan": plan,
+                "reason": "Выполнение завершено, проверяю результат",
+            }
+        else:
+            nxt = idx + 1
+            for s in plan:
+                if s["index"] == nxt:
+                    s["state"] = "in_progress"
+            content = (
+                f"Эхо (mock). Выполнил шаг {idx}/{total}: {plan[idx - 1]['label']}.\n"
+                f"Следующий шаг {nxt}/{total}: {plan[nxt - 1]['label']}."
+            )
+            update = {
+                "stage": "execution",
+                "step_index": nxt,
+                "step_total": total,
+                "step_label": plan[nxt - 1]["label"],
+                "expected_action": "wait_user",
+                "plan": plan,
+                "reason": f"Шаг {idx} готов, перехожу к шагу {nxt}",
+            }
+    elif stage == "validation":
+        content = "Эхо (mock). Валидация пройдена. Задача завершена (этап done)."
+        update = {
+            "stage": "done",
+            "step_index": task["step_total"],
+            "step_total": task["step_total"],
+            "step_label": "завершено",
+            "expected_action": "done",
+            "plan": task["plan"],
+            "reason": "Результат проверен, задача готова",
+        }
+    else:  # done
+        content = "Эхо (mock). Задача уже завершена."
+        update = None
+
+    return content, update
+
+
+def _require_task(session_id: str, task_id: str) -> dict:
+    task = storage.get_task(task_id)
+    if task is None or task["session_id"] != session_id:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return task
+
+
+def _resolve_or_create_task(session_id: str, task_id: Optional[str], title: Optional[str]) -> dict:
+    """Определяет задачу для запроса: явная → активная → новая."""
+    if task_id:
+        return _require_task(session_id, task_id)
+    task = storage.get_active_task(session_id)
+    if task is None:
+        task = storage.create_task(session_id, title=(title or ""))
+    return task
 
 
 # ============================================================
@@ -433,13 +569,14 @@ def build_profile_system_block(profile) -> str:
     return "\n".join(lines)
 
 
-def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None):
-    """Собирает сообщения модели из профиля и трёх слоёв памяти.
+def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None, task=None, resume_instruction=None):
+    """Собирает сообщения модели из профиля, состояния задачи и трёх слоёв памяти.
 
-    • профиль        — системный блок (всегда, если задан);
-    • краткосрочная  — окно последних N (или полная ветка для branching);
-    • рабочая        — системный блок (всегда);
-    • долговременная — системный блок (для sticky_facts — только факты kind=fact).
+    • профиль          — системный блок (всегда, если задан);
+    • состояние задачи — инструкция контроллера + блок конечного автомата;
+    • краткосрочная    — окно последних N (или полная ветка для branching);
+    • рабочая          — системный блок (всегда);
+    • долговременная   — системный блок (для sticky_facts — только факты kind=fact).
     """
     if strategy == STRATEGY_STICKY_FACTS:
         block = build_memory_system_block(working, long_term, long_term_kinds={"fact"})
@@ -450,6 +587,13 @@ def build_request_messages(strategy, conversation, working, long_term, window_si
     profile_block = build_profile_system_block(profile)
     if profile_block:
         messages.append({"role": "system", "content": profile_block})
+    if task:
+        messages.append({"role": "system", "content": TASK_STATE_SYSTEM})
+        task_block = render_task_block(task)
+        if task_block:
+            messages.append({"role": "system", "content": task_block})
+        if resume_instruction:
+            messages.append({"role": "system", "content": resume_instruction})
     if block:
         messages.append({"role": "system", "content": block})
     if strategy == STRATEGY_BRANCHING:
@@ -548,6 +692,14 @@ async def agent_endpoint(request: AgentRequest):
         working = storage.load_working(agent_id, working_profile_id)
         long_term = storage.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
+        # 2.5. Задача (конечный автомат). Явная → активная → новая.
+        task = _resolve_or_create_task(agent_id, request.task_id, request.task_title)
+        was_paused = task["status"] == "paused"
+        if was_paused:
+            # Сообщение пришло к задаче на паузе → возобновляем и продолжаем с того же места.
+            task = storage.resume_task(task["task_id"])
+        resume_instruction = render_resume_instruction(task) if was_paused else None
+
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
         suggest_cost = 0.0
         pending_memory = []
@@ -561,21 +713,36 @@ async def agent_endpoint(request: AgentRequest):
             except Exception as e:
                 logger.warning("Ошибка генерации предложений памяти: %s", e)
 
-        # 4. Формируем контекст из профиля и трёх слоёв памяти.
-        request_messages = build_request_messages(strategy, conversation, working, long_term, window_size, profile=profile)
+        # 4. Формируем контекст из профиля, состояния задачи и трёх слоёв памяти.
+        request_messages = build_request_messages(
+            strategy, conversation, working, long_term, window_size,
+            profile=profile, task=task, resume_instruction=resume_instruction,
+        )
 
         raw_context_tokens = estimate_messages_tokens(conversation)
         context_tokens = estimate_messages_tokens(request_messages)
 
-        # 5. Вызов модели.
+        # 5. Вызов модели. Один вызов возвращает и ответ, и предложение перехода
+        #    конечного автомата (tool call / мок) — экономим вызовы.
+        task_update = None
         if API_KEY == "sk-1234567890":
-            data = mock_deepseek_response(
-                request_messages, request.model, request.temperature,
-                request.top_k, request.top_p, request.stop, request.max_tokens,
-                profile=profile
+            content, task_update = mock_task_turn(
+                task, current_user_message.get("content", "") if current_user_message else ""
             )
+            prompt_tokens = estimate_messages_tokens(request_messages)
+            completion_tokens = estimate_tokens(content)
+            data = {
+                "id": f"mock-{uuid.uuid4()}",
+                "choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+            }
         else:
-            data = call_deepseek(request_messages, request)
+            data = call_deepseek(request_messages, request, tools=[TASK_STATE_TOOL])
+            task_update = extract_task_update(data)
 
         duration = time.time() - start_time
 
@@ -594,6 +761,13 @@ async def agent_endpoint(request: AgentRequest):
         else:
             history_tokens = raw_context_tokens
         total_tokens = prompt_tokens + completion_tokens
+
+        # 5.5. Применяем переход конечного автомата (валидация в task_state).
+        if task_update:
+            fields, transition = apply_state_update(task, task_update)
+            task = storage.update_task(
+                task["task_id"], fields, source="model", reason=transition["reason"]
+            )
 
         # 6. Сохраняем ответ в краткосрочную память (активная ветка).
         conversation.append({"role": "assistant", "content": content})
@@ -625,6 +799,7 @@ async def agent_endpoint(request: AgentRequest):
             },
             "context": context_summary,
             "memory": {"working": working, "long_term": long_term},
+            "task": task,
             "pending_memory": pending_memory,
             "memory_ops_applied": memory_ops_applied,
             "duration": round(duration, 3),
@@ -775,6 +950,8 @@ async def get_agent_history(session_id: str):
     profile_id = storage.get_session_profile(session_id)
     long_term = storage.load_long_term_for_profile(profile_id)
     branches = storage.list_branches(session_id)
+    tasks = storage.list_tasks(session_id)
+    active_task_id = next((t["task_id"] for t in tasks if t["status"] == "active"), None)
     return {
         "session_id": session_id,
         "messages": messages,
@@ -786,6 +963,8 @@ async def get_agent_history(session_id: str):
         "long_term": long_term,
         "current_branch": meta["current_branch"],
         "branches": branches,
+        "tasks": tasks,
+        "active_task_id": active_task_id,
     }
 
 
@@ -885,6 +1064,62 @@ async def delete_agent_history(session_id: str):
     if not storage.delete(session_id):
         raise HTTPException(status_code=404, detail="Сессия не найдена")
     return {"deleted": True, "session_id": session_id}
+
+
+# ============================================================
+# Задачи (конечный автомат)
+# ============================================================
+@app.get("/agent/{session_id}/tasks")
+async def list_tasks(session_id: str):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    tasks = storage.list_tasks(session_id)
+    active = next((t["task_id"] for t in tasks if t["status"] == "active"), None)
+    return {"tasks": tasks, "active_task_id": active}
+
+
+@app.post("/agent/{session_id}/tasks")
+async def create_task(session_id: str, request: TaskCreateRequest):
+    if storage.get_session_meta(session_id) is None:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    task = storage.create_task(session_id, title=(request.title or ""))
+    return {"task": task}
+
+
+@app.get("/agent/{session_id}/tasks/{task_id}")
+async def get_task(session_id: str, task_id: str):
+    task = _require_task(session_id, task_id)
+    return {"task": task, "transitions": storage.list_task_transitions(task_id)}
+
+
+@app.post("/agent/{session_id}/tasks/{task_id}/pause")
+async def pause_task(session_id: str, task_id: str):
+    _require_task(session_id, task_id)
+    return {"task": storage.pause_task(task_id)}
+
+
+@app.post("/agent/{session_id}/tasks/{task_id}/resume")
+async def resume_task(session_id: str, task_id: str):
+    _require_task(session_id, task_id)
+    return {"task": storage.resume_task(task_id)}
+
+
+@app.post("/agent/{session_id}/tasks/{task_id}/transition")
+async def transition_task(session_id: str, task_id: str, request: TaskTransitionRequest):
+    task = _require_task(session_id, task_id)
+    fields, transition = apply_state_update(task, request.model_dump())
+    task = storage.update_task(
+        task_id, fields, source="manual", reason=transition["reason"]
+    )
+    return {"task": task}
+
+
+@app.delete("/agent/{session_id}/tasks/{task_id}")
+async def delete_task(session_id: str, task_id: str):
+    _require_task(session_id, task_id)
+    if not storage.delete_task(task_id):
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return {"deleted": True, "task_id": task_id}
 
 
 # Запуск: uvicorn main:app --host 0.0.0.0 --port 8000

@@ -926,6 +926,182 @@
             }
         }
 
+        /* Панель задачи (конечный автомат) */
+        .task-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: rgba(0, 184, 148, 0.08);
+            border: 1px solid rgba(0, 206, 201, 0.3);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .task-stepper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .task-step {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #718096;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .task-step.current {
+            background: rgba(0, 184, 148, 0.22);
+            border-color: #00cec9;
+            color: #81ecec;
+        }
+
+        .task-step.done {
+            background: rgba(0, 184, 148, 0.15);
+            border-color: rgba(0, 206, 201, 0.5);
+            color: #55efc4;
+        }
+
+        .task-step.paused {
+            background: rgba(253, 203, 110, 0.18);
+            border-color: #fdcb6e;
+            color: #ffeaa7;
+        }
+
+        .task-arrow {
+            color: #4a5568;
+            font-size: 12px;
+        }
+
+        .task-meta-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .task-meta {
+            color: #cbd5e0;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .task-meta b {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .task-buttons {
+            display: inline-flex;
+            gap: 6px;
+        }
+
+        .task-btn {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(108, 92, 231, 0.15);
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 10px;
+            color: #e9e5ff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .task-btn:hover {
+            background: rgba(108, 92, 231, 0.3);
+            border-color: #a29bfe;
+        }
+
+        .task-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* Список задач в модалке */
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            font-size: 13px;
+            color: #cbd5e0;
+        }
+
+        .task-item.selected {
+            border-color: #00cec9;
+            background: rgba(0, 184, 148, 0.08);
+        }
+
+        .task-item .t-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .task-item .t-title {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .task-item .t-sub {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .task-status-chip {
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            flex-shrink: 0;
+        }
+
+        .task-status-chip.active {
+            background: rgba(0, 184, 148, 0.2);
+            color: #55efc4;
+        }
+
+        .task-status-chip.paused {
+            background: rgba(253, 203, 110, 0.2);
+            color: #ffeaa7;
+        }
+
+        .task-status-chip.done {
+            background: rgba(255, 255, 255, 0.1);
+            color: #a0aec0;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 10px;
+        }
+
         /* Управление ветками (стратегия branching) */
         .branch-controls {
             display: none;
@@ -1096,6 +1272,21 @@
                 <button class="tool-btn" id="memoryOpenBtn">🧠 Память
                     <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
                 </button>
+                <button class="tool-btn" id="taskOpenBtn">🎯 Задача
+                    <span class="memory-badge" id="taskBadge">нет</span>
+                </button>
+            </div>
+
+            <div class="task-panel" id="taskPanel">
+                <div class="task-stepper" id="taskStepper"></div>
+                <div class="task-meta-row">
+                    <span class="task-meta" id="taskMeta">Задача не выбрана</span>
+                    <span class="task-buttons">
+                        <button class="task-btn" id="taskPauseBtn" title="Поставить на паузу">⏸</button>
+                        <button class="task-btn" id="taskResumeBtn" title="Продолжить">▶</button>
+                        <button class="task-btn" id="taskListBtn" title="Список задач">📋</button>
+                    </span>
+                </div>
             </div>
 
             <div class="context-summary" id="contextSummary"></div>
@@ -1229,6 +1420,20 @@
     </div>
 </div>
 
+<!-- Модальное окно: Задачи (конечный автомат) -->
+<div class="modal-overlay" id="taskModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🎯 Задачи (конечный автомат)</div>
+            <button class="modal-close" data-close="taskModal" title="Закрыть">✕</button>
+        </div>
+        <div class="task-list" id="taskList"></div>
+        <div class="task-actions">
+            <button class="btn-mem-save" id="taskNewBtn">➕ Новая задача</button>
+        </div>
+    </div>
+</div>
+
 <script>
     // === Конфигурация ===
     const API_BASE = 'http://localhost:8000';
@@ -1285,6 +1490,16 @@
     const profileNotes = document.getElementById('profileNotes');
     const profileOpenBtn = document.getElementById('profileOpenBtn');
     const memoryOpenBtn = document.getElementById('memoryOpenBtn');
+    // Задача (конечный автомат)
+    const taskBadge = document.getElementById('taskBadge');
+    const taskOpenBtn = document.getElementById('taskOpenBtn');
+    const taskStepper = document.getElementById('taskStepper');
+    const taskMeta = document.getElementById('taskMeta');
+    const taskPauseBtn = document.getElementById('taskPauseBtn');
+    const taskResumeBtn = document.getElementById('taskResumeBtn');
+    const taskListBtn = document.getElementById('taskListBtn');
+    const taskList = document.getElementById('taskList');
+    const taskNewBtn = document.getElementById('taskNewBtn');
 
     const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
     const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
@@ -1296,6 +1511,14 @@
     };
     const STATE_LABELS = {pending: 'ожидает', in_progress: 'в работе', done: 'готово', blocked: 'заблокировано'};
 
+    // Локализация для конечного автомата.
+    const STAGE_LABELS = {planning: 'планирование', execution: 'выполнение', validation: 'валидация', done: 'готово'};
+    const STAGES = ['planning', 'execution', 'validation', 'done'];
+    const STATUS_LABELS = {active: 'активна', paused: 'на паузе', done: 'завершена'};
+    const ACTION_LABELS = {
+        model_call: 'агент продолжит сам', wait_user: 'ждёт ввода', confirm: 'ждёт подтверждения', done: 'завершено'
+    };
+
     // === Состояние ===
     let history = [];
     let branches = [];
@@ -1306,6 +1529,8 @@
     let profiles = [];
     let activeProfileId = null;
     let sessionProfileId = null;
+    let tasks = [];
+    let currentTaskId = null;
 
     // === Модальные окна ===
     function openModal(id) {
@@ -1790,6 +2015,138 @@
         profileName.focus();
     }
 
+    // === Задача (конечный автомат) ===
+    function currentTask() {
+        return tasks.find(t => t.task_id === currentTaskId) || null;
+    }
+
+    async function loadTasks() {
+        if (!sessionId) {
+            tasks = [];
+            currentTaskId = null;
+            renderTask();
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks`);
+            tasks = data.tasks || [];
+            const active = data.active_task_id || null;
+            // Выбранная задача: текущая (если жива), иначе активная.
+            if (!tasks.some(t => t.task_id === currentTaskId)) {
+                currentTaskId = active;
+            }
+            renderTask();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    function renderTask() {
+        const t = currentTask();
+        if (!t) {
+            taskBadge.textContent = 'нет';
+            taskStepper.innerHTML = '';
+            taskMeta.innerHTML = 'Задача не выбрана — напишите сообщение, чтобы создать новую.';
+            taskPauseBtn.disabled = true;
+            taskResumeBtn.disabled = true;
+            renderTaskList();
+            return;
+        }
+
+        const paused = t.status === 'paused';
+        taskBadge.textContent = `${STAGE_LABELS[t.stage] || t.stage}${t.step_total ? ` · ${t.step_index}/${t.step_total}` : ''}`;
+
+        // Степпер этапов.
+        const stageIdx = STAGES.indexOf(t.stage);
+        taskStepper.innerHTML = STAGES.map((s, i) => {
+            let cls = 'task-step';
+            if (i === stageIdx) cls += (paused ? ' paused' : ' current');
+            else if (i < stageIdx || t.stage === 'done') cls += ' done';
+            const mark = (i < stageIdx || t.stage === 'done') ? '✓ ' : '';
+            const arrow = i < STAGES.length - 1 ? '<span class="task-arrow">→</span>' : '';
+            return `<span class="${cls}">${mark}${STAGE_LABELS[s]}</span>${arrow}`;
+        }).join('');
+
+        const parts = [`<b>${escapeHtml(t.title || 'Задача')}</b>`];
+        parts.push(`статус: ${STATUS_LABELS[t.status] || t.status}`);
+        if (t.step_total) {
+            parts.push(`шаг ${t.step_index}/${t.step_total} · ${escapeHtml(t.step_label || '—')}`);
+        }
+        parts.push(`действие: ${ACTION_LABELS[t.expected_action] || t.expected_action}`);
+        taskMeta.innerHTML = parts.join(' · ');
+
+        taskPauseBtn.disabled = (t.status !== 'active');
+        taskResumeBtn.disabled = (t.status !== 'paused');
+        renderTaskList();
+    }
+
+    function renderTaskList() {
+        if (!tasks.length) {
+            taskList.innerHTML = '<div class="mem-empty">Нет задач.</div>';
+            return;
+        }
+        taskList.innerHTML = tasks.map(t => {
+            const sel = t.task_id === currentTaskId ? ' selected' : '';
+            const chip = `<span class="task-status-chip ${escapeAttr(t.status)}">${STATUS_LABELS[t.status] || t.status}</span>`;
+            const title = t.title || 'Без названия';
+            const sub = `этап: ${STAGE_LABELS[t.stage] || t.stage}` +
+                (t.step_total ? ` · шаг ${t.step_index}/${t.step_total}` : '');
+            return `
+          <div class="task-item${sel}">
+            <div class="t-main">
+              <div class="t-title">${escapeHtml(title)}</div>
+              <div class="t-sub">${escapeHtml(sub)}</div>
+            </div>
+            ${chip}
+            <button class="task-btn" data-task-action="select" data-id="${escapeAttr(t.task_id)}" title="Работать с этой задачей">🎯</button>
+            <button class="task-btn" data-task-action="pause" data-id="${escapeAttr(t.task_id)}" title="Пауза" ${t.status !== 'active' ? 'disabled' : ''}>⏸</button>
+            <button class="task-btn" data-task-action="resume" data-id="${escapeAttr(t.task_id)}" title="Продолжить" ${t.status !== 'paused' ? 'disabled' : ''}>▶</button>
+            <button class="task-btn" data-task-action="delete" data-id="${escapeAttr(t.task_id)}" title="Удалить">✕</button>
+          </div>`;
+        }).join('');
+    }
+
+    async function selectTask(taskId) {
+        currentTaskId = taskId;
+        renderTask();
+    }
+
+    async function pauseCurrentTask() {
+        const t = currentTask();
+        if (!t || !sessionId) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/pause`, {method: 'POST'});
+        await loadTasks();
+    }
+
+    async function resumeCurrentTask() {
+        const t = currentTask();
+        if (!t || !sessionId) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/resume`, {method: 'POST'});
+        await loadTasks();
+    }
+
+    async function createNewTask() {
+        if (!sessionId) {
+            alert('Сначала отправьте сообщение, чтобы создать диалог.');
+            return;
+        }
+        const title = prompt('Название задачи (можно пусто):', '') || '';
+        const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title}),
+        });
+        currentTaskId = data.task.task_id;
+        await loadTasks();
+        closeModal('taskModal');
+    }
+
+    async function deleteTask(taskId) {
+        if (!sessionId) return;
+        if (!confirm('Удалить задачу?')) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`, {method: 'DELETE'});
+        if (currentTaskId === taskId) currentTaskId = null;
+        await loadTasks();
+    }
+
     // === Отправка запроса ===
     async function sendRequest() {
         const userMessage = messageEl.value.trim();
@@ -1835,6 +2192,7 @@
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
         if (activeProfileId) payload.profile_id = activeProfileId;
+        if (currentTaskId) payload.task_id = currentTaskId;
 
         try {
             const data = await apiFetch(ENDPOINT, {
@@ -1854,6 +2212,11 @@
             pendingMemory = data.pending_memory || [];
             renderMemory();
             renderPending();
+
+            if (data.task) {
+                currentTaskId = data.task.task_id;
+                await loadTasks();
+            }
 
             if (data.profile) {
                 activeProfileId = data.profile.id;
@@ -1943,6 +2306,8 @@
                 sessionProfileId = data.profile_id || null;
                 memory = {working: data.working || [], long_term: data.long_term || []};
                 pendingMemory = [];
+                tasks = data.tasks || [];
+                currentTaskId = data.active_task_id || null;
                 if (data.strategy) strategyEl.value = data.strategy;
                 if (data.window_size != null) windowSizeEl.value = data.window_size;
                 const win = data.window_size || 5;
@@ -1950,6 +2315,7 @@
                 updateBranchControlsVisibility();
                 renderMemory();
                 renderPending();
+                renderTask();
                 renderContext({
                     strategy: data.strategy, total_messages: history.length, window_size: win,
                     working_count: memory.working.length, long_term_count: memory.long_term.length,
@@ -1979,6 +2345,8 @@
         branches = [];
         currentBranchId = null;
         sessionProfileId = null;
+        tasks = [];
+        currentTaskId = null;
         memory = {working: [], long_term: memory.long_term || []};
         pendingMemory = [];
         history.push({
@@ -1992,6 +2360,7 @@
         renderContext(null);
         renderMemory();
         renderPending();
+        renderTask();
         messageEl.focus();
         // Долговременная память переживает сброс — перечитаем её с сервера.
         await loadLongTerm();
@@ -2014,6 +2383,11 @@
     profileSelect.addEventListener('change', (e) => activateProfile(e.target.value));
     profileOpenBtn.addEventListener('click', () => openModal('profileModal'));
     memoryOpenBtn.addEventListener('click', () => openModal('memoryModal'));
+    taskOpenBtn.addEventListener('click', () => openModal('taskModal'));
+    taskListBtn.addEventListener('click', () => openModal('taskModal'));
+    taskPauseBtn.addEventListener('click', pauseCurrentTask);
+    taskResumeBtn.addEventListener('click', resumeCurrentTask);
+    taskNewBtn.addEventListener('click', createNewTask);
 
     // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
     document.querySelectorAll('.modal-overlay').forEach(ov => {
@@ -2047,6 +2421,22 @@
         else if (action === 'reject') rejectSuggestion(parseInt(el.dataset.index, 10));
     });
 
+    // Делегирование кликов по кнопкам задач
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-task-action]');
+        if (!el) return;
+        const action = el.dataset.taskAction;
+        const id = el.dataset.id;
+        if (action === 'select') selectTask(id);
+        else if (action === 'pause') {
+            currentTaskId = id;
+            pauseCurrentTask();
+        } else if (action === 'resume') {
+            currentTaskId = id;
+            resumeCurrentTask();
+        } else if (action === 'delete') deleteTask(id);
+    });
+
     // === Инициализация ===
     (async function init() {
         updateBranchControlsVisibility();
@@ -2075,6 +2465,7 @@
         renderContext(null);
         renderMemory();
         renderPending();
+        renderTask();
         // Показываем долговременную память даже без активного диалога.
         await loadLongTerm();
     })();

@@ -71,6 +71,8 @@ class HistoryStorage:
         # Профили пользователя (персонализация): profile_id -> entry
         self._profiles: Dict[str, dict] = {}
         self._active_profile_id: Optional[str] = None
+        # Задачи (конечный автомат): task_id -> entry.
+        self._tasks: Dict[str, dict] = {}
         self._init_db()
         self.load_all_history()
 
@@ -219,6 +221,53 @@ class HistoryStorage:
                 # Прежние механизмы больше не нужны.
                 conn.execute("DROP TABLE IF EXISTS session_facts")
                 conn.execute("DROP TABLE IF EXISTS session_summaries")
+                # Задачи (конечный автомат). В одной сессии может быть несколько
+                # задач, но активной (status='active') — только одна: это гарантирует
+                # частичный уникальный индекс ниже.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tasks (
+                        task_id         TEXT PRIMARY KEY,
+                        session_id      TEXT NOT NULL,
+                        title           TEXT NOT NULL DEFAULT '',
+                        stage           TEXT NOT NULL DEFAULT 'planning',
+                        status          TEXT NOT NULL DEFAULT 'active',
+                        step_index      INTEGER NOT NULL DEFAULT 0,
+                        step_total      INTEGER NOT NULL DEFAULT 0,
+                        step_label      TEXT NOT NULL DEFAULT '',
+                        expected_action TEXT NOT NULL DEFAULT 'wait_user',
+                        plan            TEXT NOT NULL DEFAULT '[]',
+                        resume_note     TEXT NOT NULL DEFAULT '',
+                        created_at      TEXT NOT NULL,
+                        updated_at      TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_task
+                    ON tasks(session_id) WHERE status = 'active'
+                    """
+                )
+                # Журнал переходов конечного автомата (аудит).
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS task_transitions (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        task_id         TEXT NOT NULL,
+                        session_id      TEXT NOT NULL,
+                        from_stage      TEXT,
+                        to_stage        TEXT,
+                        from_status     TEXT,
+                        to_status       TEXT,
+                        step_label      TEXT,
+                        expected_action TEXT,
+                        source          TEXT NOT NULL DEFAULT 'model',
+                        reason          TEXT NOT NULL DEFAULT '',
+                        created_at      TEXT NOT NULL
+                    )
+                    """
+                )
                 conn.commit()
 
     def load_all_history(self) -> int:
@@ -242,6 +291,10 @@ class HistoryStorage:
                 profile_rows = conn.execute(
                     "SELECT profile_id, name, display_name, style, format, constraints, notes, "
                     "is_active, created_at, updated_at FROM user_profiles"
+                ).fetchall()
+                task_rows = conn.execute(
+                    "SELECT task_id, session_id, title, stage, status, step_index, step_total, "
+                    "step_label, expected_action, plan, resume_note, created_at, updated_at FROM tasks"
                 ).fetchall()
 
             self._sessions = {}
@@ -314,14 +367,33 @@ class HistoryStorage:
                 if profile["is_active"]:
                     self._active_profile_id = row["profile_id"]
 
+            self._tasks = {}
+            for row in task_rows:
+                self._tasks[row["task_id"]] = {
+                    "task_id": row["task_id"],
+                    "session_id": row["session_id"],
+                    "title": row["title"],
+                    "stage": row["stage"],
+                    "status": row["status"],
+                    "step_index": row["step_index"],
+                    "step_total": row["step_total"],
+                    "step_label": row["step_label"],
+                    "expected_action": row["expected_action"],
+                    "plan": json.loads(row["plan"] or "[]"),
+                    "resume_note": row["resume_note"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+
         logger.info(
             "Память загружена: сессий — %d, веток — %d, рабочая — %d записей, "
-            "долговременная — %d записей, профилей — %d",
+            "долговременная — %d записей, профилей — %d, задач — %d",
             len(self._sessions),
             len(self._branch_index),
             sum(len(v) for v in self._working.values()),
             len(self._long_term),
             len(self._profiles),
+            len(self._tasks),
         )
         return len(self._sessions)
 
@@ -1007,6 +1079,215 @@ class HistoryStorage:
         }
 
     # ------------------------------------------------------------------
+    # Задачи (конечный автомат)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _persist_task(conn: sqlite3.Connection, task: dict) -> None:
+        """Записывает запись задачи в БД (upsert по task_id)."""
+        conn.execute(
+            """
+            INSERT INTO tasks
+                (task_id, session_id, title, stage, status, step_index, step_total,
+                 step_label, expected_action, plan, resume_note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                title           = excluded.title,
+                stage           = excluded.stage,
+                status          = excluded.status,
+                step_index      = excluded.step_index,
+                step_total      = excluded.step_total,
+                step_label      = excluded.step_label,
+                expected_action = excluded.expected_action,
+                plan            = excluded.plan,
+                resume_note     = excluded.resume_note,
+                updated_at      = excluded.updated_at
+            """,
+            (
+                task["task_id"],
+                task["session_id"],
+                task["title"],
+                task["stage"],
+                task["status"],
+                task["step_index"],
+                task["step_total"],
+                task["step_label"],
+                task["expected_action"],
+                json.dumps(task["plan"], ensure_ascii=False),
+                task["resume_note"],
+                task["created_at"],
+                task["updated_at"],
+            ),
+        )
+
+    @staticmethod
+    def _log_task_transition(
+        conn: sqlite3.Connection,
+        task_id: str,
+        session_id: str,
+        from_stage,
+        to_stage,
+        from_status,
+        to_status,
+        step_label,
+        expected_action,
+        source: str,
+        reason: str,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO task_transitions
+                (task_id, session_id, from_stage, to_stage, from_status, to_status,
+                 step_label, expected_action, source, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id, session_id, from_stage, to_stage, from_status, to_status,
+                step_label, expected_action, source or "model", reason or "", _now(),
+            ),
+        )
+
+    def create_task(self, session_id: str, title: str = "", status: str = "active") -> dict:
+        """Создаёт задачу. Если новая активна — прочие активные уходят в паузу."""
+        now = _now()
+        task_id = uuid.uuid4().hex
+        with self._lock:
+            if session_id not in self._sessions:
+                raise ValueError("Сессия не найдена")
+            with closing(self._connect()) as conn:
+                # Инвариант: активной может быть только одна задача в сессии.
+                if status == "active":
+                    self._pause_active_locked(session_id, conn, exclude_task_id=None)
+                task = {
+                    "task_id": task_id,
+                    "session_id": session_id,
+                    "title": title,
+                    "stage": "planning",
+                    "status": status,
+                    "step_index": 0,
+                    "step_total": 0,
+                    "step_label": "",
+                    "expected_action": "wait_user",
+                    "plan": [],
+                    "resume_note": "",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                self._tasks[task_id] = task
+                self._persist_task(conn, task)
+                self._log_task_transition(
+                    conn, task_id, session_id, None, "planning", None, status,
+                    "", "wait_user", "manual", "создана задача",
+                )
+                conn.commit()
+        return dict(task)
+
+    def _pause_active_locked(
+        self,
+        session_id: str,
+        conn: sqlite3.Connection,
+        exclude_task_id: Optional[str] = None,
+    ) -> List[str]:
+        """Помечает все активные задачи сессии (кроме исключённой) как paused.
+
+        Вызывается ТОЛЬКО под self._lock с уже открытым conn. Возвращает id задач,
+        которые были сняты с активного состояния.
+        """
+        now = _now()
+        paused_ids = []
+        for other in self._tasks.values():
+            if (
+                other["session_id"] == session_id
+                and other["status"] == "active"
+                and other["task_id"] != exclude_task_id
+            ):
+                from_status = other["status"]
+                other["status"] = "paused"
+                other["updated_at"] = now
+                self._persist_task(conn, other)
+                self._log_task_transition(
+                    conn, other["task_id"], session_id, other["stage"], other["stage"],
+                    from_status, "paused", other["step_label"], other["expected_action"],
+                    "auto", "новая активная задача",
+                )
+                paused_ids.append(other["task_id"])
+        return paused_ids
+
+    def get_task(self, task_id: str) -> Optional[dict]:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            return dict(task) if task else None
+
+    def list_tasks(self, session_id: str) -> List[dict]:
+        with self._lock:
+            return [
+                dict(t) for t in self._tasks.values() if t["session_id"] == session_id
+            ]
+
+    def get_active_task(self, session_id: str) -> Optional[dict]:
+        with self._lock:
+            for t in self._tasks.values():
+                if t["session_id"] == session_id and t["status"] == "active":
+                    return dict(t)
+            return None
+
+    def update_task(self, task_id: str, fields: dict, source: str = "model", reason: str = "") -> dict:
+        """Обновляет поля задачи и логирует переход. Поддерживает паузу/резюм."""
+        now = _now()
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise ValueError("Задача не найдена")
+            from_stage = task["stage"]
+            from_status = task["status"]
+            with closing(self._connect()) as conn:
+                # Если задача становится активной — гасим прочие активные.
+                if fields.get("status") == "active" and task["status"] != "active":
+                    self._pause_active_locked(task["session_id"], conn, exclude_task_id=task_id)
+                for key in (
+                    "title", "stage", "status", "step_index", "step_total",
+                    "step_label", "expected_action", "plan", "resume_note",
+                ):
+                    if key in fields:
+                        task[key] = fields[key]
+                task["updated_at"] = now
+                self._persist_task(conn, task)
+                self._log_task_transition(
+                    conn, task_id, task["session_id"], from_stage, task["stage"],
+                    from_status, task["status"], task["step_label"],
+                    task["expected_action"], source, reason,
+                )
+                conn.commit()
+        return dict(task)
+
+    def pause_task(self, task_id: str) -> dict:
+        return self.update_task(task_id, {"status": "paused"}, source="manual", reason="пауза")
+
+    def resume_task(self, task_id: str) -> dict:
+        return self.update_task(task_id, {"status": "active"}, source="manual", reason="возобновление")
+
+    def list_task_transitions(self, task_id: str) -> List[dict]:
+        with self._lock:
+            with closing(self._connect()) as conn:
+                rows = conn.execute(
+                    "SELECT id, from_stage, to_stage, from_status, to_status, step_label, "
+                    "expected_action, source, reason, created_at FROM task_transitions "
+                    "WHERE task_id = ? ORDER BY id ASC",
+                    (task_id,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_task(self, task_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.pop(task_id, None)
+            if task is None:
+                return False
+            with closing(self._connect()) as conn:
+                conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+                conn.execute("DELETE FROM task_transitions WHERE task_id = ?", (task_id,))
+                conn.commit()
+            return True
+
+    # ------------------------------------------------------------------
     # Управление сессиями
     # ------------------------------------------------------------------
     def delete(self, session_id: str) -> bool:
@@ -1021,11 +1302,16 @@ class HistoryStorage:
             for branch_id in session["branches"]:
                 self._branch_index.pop(branch_id, None)
             self._working.pop(session_id, None)
+            # Удаляем задачи сессии (их журнал переходов — тоже).
+            for tid in [t for t in self._tasks if self._tasks[t]["session_id"] == session_id]:
+                self._tasks.pop(tid, None)
             with closing(self._connect()) as conn:
                 conn.execute("DELETE FROM conversations WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM branches WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM working_memory WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM memory_log WHERE session_id = ?", (session_id,))
+                conn.execute("DELETE FROM task_transitions WHERE session_id = ?", (session_id,))
+                conn.execute("DELETE FROM tasks WHERE session_id = ?", (session_id,))
                 conn.commit()
             return True
 
