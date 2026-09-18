@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Union
 from fastapi.middleware.cors import CORSMiddleware
 
-from storage import storage, WORKING_KINDS, WORKING_STATES, LONG_TERM_KINDS
+from storage import storage, WORKING_KINDS, WORKING_STATES, LONG_TERM_KINDS, INVARIANT_CATEGORIES
 from task_state import (
     apply_state_update,
     forward_stage_path,
@@ -60,6 +60,33 @@ DEFAULT_WINDOW_SIZE = 10
 # Параметры вспомогательного вызова (генерация предложений памяти).
 SUGGEST_MAX_TOKENS = 512
 SUGGEST_TEMPERATURE = 0.2
+
+# Человекочитаемые названия категорий инвариантов.
+INVARIANT_CATEGORY_LABELS = {
+    "architecture": "архитектура",
+    "decision": "техническое решение",
+    "stack": "стек",
+    "business_rule": "бизнес-правило",
+    "custom": "прочее",
+}
+
+# Параметры отдельного LLM-вызова-классификатора, который проверяет запрос
+# на соответствие инвариантам ДО основной генерации.
+INVARIANT_CHECK_SYSTEM = (
+    "Ты — строгий валидатор инвариантов. Решай ТОЛЬКО на основе текста инвариантов "
+    "и запроса. Не смягчай правила и не придумывай исключений."
+)
+INVARIANT_CHECK_PROMPT = (
+    "Ниже — нерушимые инварианты (правила) агента и запрос пользователя.\n"
+    "Определи, нарушает ли запрос хотя бы один инвариант.\n"
+    "Верни СТРОГО JSON-объект вида "
+    "{\"violation\": <true|false>, \"invariant_name\": \"<имя нарушенного инварианта или пусто>\", "
+    "\"reason\": \"<краткое объяснение или пусто>\"}.\n"
+    "Если нарушений нет — violation=false, остальные поля пустые.\n"
+    "Считай нарушением и случаи, когда запрос противоречит правилу косвенно.\n\n"
+)
+INVARIANT_CHECK_TEMPERATURE = 0.0
+INVARIANT_CHECK_MAX_TOKENS = 256
 
 SUGGEST_SYSTEM = "Ты — ассистент, который ведёт модель памяти агента."
 
@@ -151,6 +178,24 @@ class TaskTransitionRequest(BaseModel):
     step_label: Optional[str] = Field(None, description="Название текущего шага")
     plan: Optional[List[dict]] = Field(None, description="План шагов")
     reason: Optional[str] = Field("", description="Причина перехода")
+
+
+class InvariantRequest(BaseModel):
+    """Инвариант — жёсткое ограничение, которое агент не вправе нарушать.
+
+    Скоуп задаётся тремя полями profile_id / session_id / task_id; пустое поле
+    означает «без привязки к этому измерению». Все три пустые — глобальный инвариант.
+    """
+    invariant_id: Optional[str] = Field(None, description="ID инварианта (при обновлении)")
+    profile_id: Optional[str] = Field("", description="Скоуп по профилю (пусто — без привязки)")
+    session_id: Optional[str] = Field("", description="Скоуп по сессии (пусто — без привязки)")
+    task_id: Optional[str] = Field("", description="Скоуп по задаче (пусто — без привязки)")
+    category: str = Field("business_rule", description="Категория: architecture|decision|stack|business_rule|custom")
+    name: str = Field(..., description="Короткое имя правила")
+    statement: str = Field(..., description="Формулировка инварианта")
+    rationale: Optional[str] = Field("", description="Почему это нельзя нарушать")
+    deny_examples: Optional[List[str]] = Field([], description="Примеры нарушений (для мок-проверки и подсказки)")
+    is_active: Optional[bool] = Field(True, description="Активен ли инвариант")
 
 
 # ============================================================
@@ -716,9 +761,138 @@ def build_profile_system_block(profile) -> str:
     return "\n".join(lines)
 
 
-def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None, task=None, resume_instruction=None, report_state=False):
-    """Собирает сообщения модели из профиля, состояния задачи и трёх слоёв памяти.
+def invariant_scope(inv) -> str:
+    """Человекочитаемый скоуп инварианта по заполненным полям привязки."""
+    parts = []
+    if (inv.get("profile_id") or "").strip():
+        parts.append("profile")
+    if (inv.get("session_id") or "").strip():
+        parts.append("session")
+    if (inv.get("task_id") or "").strip():
+        parts.append("task")
+    return "+".join(parts) if parts else "global"
 
+
+def build_invariants_system_block(invariants) -> str:
+    """Системный блок с инвариантами — ЖЁСТКИМИ правилами для модели.
+
+    В отличие от профиля (персонализация) и памяти (факты/решения), этот блок
+    прямо требует от модели проверять ответ на соответствие и отказываться при
+    нарушении. Не обрезается по importance.
+    """
+    if not invariants:
+        return ""
+    lines = [
+        "ИНВАРИАНТЫ (нерушимые ограничения — нарушать их НЕЛЬЗЯ):",
+        "Это не пожелания и не советы, а жёсткие правила. Проверяй КАЖДЫЙ ответ "
+        "на соответствие каждому инварианту.",
+        "Если запрос или предлагаемое решение нарушает хотя бы один инвариант — "
+        "откажись и объясни, какой именно инвариант и почему он не может быть нарушен.",
+    ]
+    for inv in invariants:
+        scope = invariant_scope(inv)
+        cat = INVARIANT_CATEGORY_LABELS.get(inv.get("category"), inv.get("category"))
+        lines.append(f"- [{scope} · {cat}] {inv.get('name')}: {inv.get('statement')}")
+        if (inv.get("rationale") or "").strip():
+            lines.append(f"    Почему нельзя: {inv.get('rationale')}")
+    return "\n".join(lines)
+
+
+def _find_invariant_by_name(invariants, name) -> Optional[dict]:
+    name = (name or "").strip().lower()
+    if not name:
+        return None
+    for inv in invariants:
+        if (inv.get("name") or "").strip().lower() == name:
+            return inv
+    return None
+
+
+def mock_check_invariants(invariants, user_text) -> dict:
+    """Детерминированная заглушка проверки инвариантов (для мока, где нет LLM).
+
+    Сверяет запрос с явными примерами нарушений (deny_examples), которые человек
+    задаёт при создании инварианта. Это НЕ «поиск по ключевым словам» как основной
+    механизм, а демо-стаб: в реальном режиме детекцию выполняет отдельный LLM-вызов.
+    """
+    text = (user_text or "").lower()
+    for inv in invariants:
+        for token in inv.get("deny_examples") or []:
+            token = str(token).strip().lower()
+            if not token:
+                continue
+            if re.search(r"\b" + re.escape(token) + r"\b", text):
+                return {
+                    "violation": True,
+                    "invariant_name": inv.get("name"),
+                    "reason": f"запрос содержит запрещённое для этого инварианта: «{token}»",
+                }
+    return {"violation": False, "invariant_name": None, "reason": ""}
+
+
+def check_invariants(invariants, user_text, model) -> dict:
+    """Отдельный LLM-вызов: нарушает ли запрос хотя бы один инвариант.
+
+    Возвращает вердикт {violation, invariant_name, reason, invariant?}. Ничего не
+    сохраняет. Ключевых слов не использует — решение принимает модель-классификатор.
+    """
+    if not invariants:
+        return {"violation": False, "invariant_name": None, "reason": ""}
+    if API_KEY == "sk-1234567890":
+        return mock_check_invariants(invariants, user_text)
+
+    invariants_text = "\n".join(
+        f"- {inv.get('name')}: {inv.get('statement')}"
+        + (f" (почему нельзя: {inv.get('rationale')})" if (inv.get('rationale') or "").strip() else "")
+        for inv in invariants
+    )
+    prompt_text = (
+        INVARIANT_CHECK_PROMPT
+        + "Инварианты:\n" + invariants_text
+        + "\n\nЗапрос пользователя:\n" + (user_text or "")
+    )
+    msgs = [
+        {"role": "system", "content": INVARIANT_CHECK_SYSTEM},
+        {"role": "user", "content": prompt_text},
+    ]
+    data = call_deepseek_raw(
+        msgs, model=model,
+        temperature=INVARIANT_CHECK_TEMPERATURE,
+        max_tokens=INVARIANT_CHECK_MAX_TOKENS,
+    )
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    parsed = parse_json_object(content) or {}
+    if not parsed.get("violation"):
+        return {"violation": False, "invariant_name": None, "reason": ""}
+    name = str(parsed.get("invariant_name") or "").strip()
+    return {
+        "violation": True,
+        "invariant_name": name,
+        "invariant": _find_invariant_by_name(invariants, name),
+        "reason": str(parsed.get("reason") or "").strip(),
+    }
+
+
+def build_refusal_reply(inv, verdict) -> str:
+    """Детерминированный текст отказа при нарушении инварианта."""
+    name = (verdict.get("invariant_name") or "").strip() or (inv.get("name") if inv else "")
+    category = INVARIANT_CATEGORY_LABELS.get(inv.get("category"), inv.get("category")) if inv else ""
+    statement = inv.get("statement") if inv else ""
+    reason = (verdict.get("reason") or "").strip() or (inv.get("rationale") if inv else "") or ""
+    lines = [f"⛔ Отказываюсь выполнять запрос: он нарушает инвариант «{name}»."]
+    if category:
+        lines.append(f"Категория: {category}.")
+    if statement:
+        lines.append(f"Правило: {statement}")
+    if reason:
+        lines.append(f"Почему это нельзя нарушать: {reason}")
+    return "\n".join(lines)
+
+
+def build_request_messages(strategy, conversation, working, long_term, window_size, profile=None, task=None, resume_instruction=None, report_state=False, invariants=None):
+    """Собирает сообщения модели из инвариантов, профиля, задачи и трёх слоёв памяти.
+
+    • инварианты       — системный блок жёстких ограничений (всегда, если заданы);
     • профиль          — системный блок (всегда, если задан);
     • состояние задачи — блок конечного автомата (если есть активная задача);
     • маркер прогресса — инструкция [STATE] (report_state=True, реальный API);
@@ -732,6 +906,9 @@ def build_request_messages(strategy, conversation, working, long_term, window_si
         block = build_memory_system_block(working, long_term)
 
     messages = []
+    invariants_block = build_invariants_system_block(invariants)
+    if invariants_block:
+        messages.append({"role": "system", "content": invariants_block})
     profile_block = build_profile_system_block(profile)
     if profile_block:
         messages.append({"role": "system", "content": profile_block})
@@ -874,6 +1051,41 @@ async def agent_endpoint(request: AgentRequest):
             else:
                 mode = "chat"
 
+        # 2.55. Инварианты (жёсткие ограничения). Проверяем запрос ДО создания
+        #        задачи и ДО основной генерации отдельным LLM-вызовом. При
+        #        нарушении — детерминированный отказ: задачу не создаём и
+        #        конечный автомат не двигаем.
+        task_id_for_scope = task["task_id"] if task else ""
+        invariants = storage.get_applicable_invariants(
+            profile["profile_id"] if profile else None, agent_id, task_id_for_scope
+        )
+        refusal_inv = None
+        refusal_reason = ""
+        if invariants:
+            try:
+                verdict = check_invariants(invariants, user_text, request.model)
+            except Exception as e:
+                logger.warning("Ошибка проверки инвариантов: %s", e)
+                verdict = {"violation": False, "invariant_name": None, "reason": ""}
+            if verdict.get("violation"):
+                refusal_inv = verdict.get("invariant") or _find_invariant_by_name(
+                    invariants, verdict.get("invariant_name")
+                )
+                refusal_reason = (verdict.get("reason") or "").strip()
+        refused = refusal_inv is not None
+        violated_invariant = None
+        if refused:
+            task = None
+            mode = "chat"
+            violated_invariant = {
+                "invariant_id": refusal_inv.get("invariant_id"),
+                "name": refusal_inv.get("name"),
+                "category": refusal_inv.get("category"),
+                "scope": invariant_scope(refusal_inv),
+                "statement": refusal_inv.get("statement"),
+                "reason": refusal_reason or (refusal_inv.get("rationale") or ""),
+            }
+
         # 2.6. Для НОВОЙ задачи заранее заводим оболочку с планом, чтобы модель
         #      видела план в контексте и следовала ему.
         is_mock = API_KEY == "sk-1234567890"
@@ -894,7 +1106,7 @@ async def agent_endpoint(request: AgentRequest):
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
         suggest_cost = 0.0
         pending_memory = []
-        if request.auto_suggest_memory and current_user_message:
+        if request.auto_suggest_memory and current_user_message and not refused:
             try:
                 suggestion, s_inp, s_out = suggest_memory(
                     working, long_term, current_user_message.get("content", ""), request.model
@@ -909,17 +1121,36 @@ async def agent_endpoint(request: AgentRequest):
             strategy, conversation, working, long_term, window_size,
             profile=profile, task=task, resume_instruction=resume_instruction,
             report_state=(mode == "task" and not is_mock),
+            invariants=invariants,
         )
 
         raw_context_tokens = estimate_messages_tokens(conversation)
         context_tokens = estimate_messages_tokens(request_messages)
 
         # 5. Вызов модели + переход конечного автомата.
+        #    • отказ по инварианту — детерминированный ответ, основная модель НЕ
+        #      вызывается и автомат не двигается;
         #    • мок — детерминированный переход (код) + описательный ответ;
         #    • реальный API — модель сама сообщает фактический прогресс маркером
         #      [STATE] {...} (его вырезаем из ответа); без маркера — детерминированный
         #      фолбэк. Это держит состояние в синхроне с реальной работой модели.
-        if is_mock:
+        if refused:
+            content = build_refusal_reply(refusal_inv, {
+                "invariant_name": refusal_inv.get("name"),
+                "reason": refusal_reason or refusal_inv.get("rationale"),
+            })
+            prompt_tokens = estimate_messages_tokens(request_messages)
+            completion_tokens = estimate_tokens(content)
+            data = {
+                "id": f"refusal-{uuid.uuid4()}",
+                "choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+            }
+        elif is_mock:
             if mode == "task":
                 if not task_was_none:
                     task = _apply_task_transition(
@@ -1003,6 +1234,9 @@ async def agent_endpoint(request: AgentRequest):
             "context": context_summary,
             "memory": {"working": working, "long_term": long_term},
             "task": task,
+            "invariants": invariants,
+            "refused": refused,
+            "violated_invariant": violated_invariant,
             "pending_memory": pending_memory,
             "memory_ops_applied": memory_ops_applied,
             "duration": round(duration, 3),
@@ -1082,6 +1316,38 @@ async def apply_long_term_ops(request: MemoryOpsRequest):
 
 
 # ============================================================
+# Инварианты (жёсткие ограничения агента)
+# ============================================================
+@app.get("/invariants")
+async def list_invariants():
+    return {"invariants": storage.list_invariants()}
+
+
+@app.post("/invariants")
+async def save_invariant(request: InvariantRequest):
+    try:
+        inv = storage.save_invariant(request.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"invariant": inv, "invariants": storage.list_invariants()}
+
+
+@app.post("/invariants/{invariant_id}/toggle")
+async def toggle_invariant(invariant_id: str):
+    inv = storage.get_invariant(invariant_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Инвариант не найден")
+    return {"invariant": storage.set_invariant_active(invariant_id, not inv["is_active"])}
+
+
+@app.delete("/invariants/{invariant_id}")
+async def delete_invariant(invariant_id: str):
+    if not storage.delete_invariant(invariant_id):
+        raise HTTPException(status_code=404, detail="Инвариант не найден")
+    return {"deleted": True, "invariant_id": invariant_id}
+
+
+# ============================================================
 # Профиль пользователя (персонализация)
 # ============================================================
 def _profiles_payload() -> dict:
@@ -1155,6 +1421,7 @@ async def get_agent_history(session_id: str):
     branches = storage.list_branches(session_id)
     tasks = storage.list_tasks(session_id)
     active_task_id = next((t["task_id"] for t in tasks if t["status"] == "active"), None)
+    invariants = storage.get_applicable_invariants(profile_id, session_id, active_task_id)
     return {
         "session_id": session_id,
         "messages": messages,
@@ -1168,6 +1435,7 @@ async def get_agent_history(session_id: str):
         "branches": branches,
         "tasks": tasks,
         "active_task_id": active_task_id,
+        "invariants": invariants,
     }
 
 

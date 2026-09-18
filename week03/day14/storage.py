@@ -35,6 +35,9 @@ WORKING_KINDS = {"goal", "constraint", "todo", "result", "context", "note"}
 WORKING_STATES = {"pending", "in_progress", "done", "blocked"}
 LONG_TERM_KINDS = {"profile", "decision", "knowledge", "preference", "agreement", "fact"}
 
+# Категории инвариантов (жёсткие ограничения, которые агент не вправе нарушать).
+INVARIANT_CATEGORIES = {"architecture", "decision", "stack", "business_rule", "custom"}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -73,6 +76,8 @@ class HistoryStorage:
         self._active_profile_id: Optional[str] = None
         # Задачи (конечный автомат): task_id -> entry.
         self._tasks: Dict[str, dict] = {}
+        # Инварианты (жёсткие ограничения агента): invariant_id -> entry.
+        self._invariants: Dict[str, dict] = {}
         self._init_db()
         self.load_all_history()
 
@@ -269,6 +274,30 @@ class HistoryStorage:
                     )
                     """
                 )
+                # Инварианты — жёсткие ограничения, которые агент не вправе нарушать.
+                # Хранятся ОТДЕЛЬНО от диалога и от трёх слоёв памяти. Скоуп задаётся
+                # тремя явными полями: profile_id / session_id / task_id (пустое поле —
+                # «без привязки к этому измерению»). Если все три пустые — глобальный
+                # инвариант.
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS invariants (
+                        invariant_id  TEXT PRIMARY KEY,
+                        profile_id    TEXT NOT NULL DEFAULT '',
+                        session_id    TEXT NOT NULL DEFAULT '',
+                        task_id       TEXT NOT NULL DEFAULT '',
+                        category      TEXT NOT NULL DEFAULT 'business_rule',
+                        name          TEXT NOT NULL,
+                        statement     TEXT NOT NULL,
+                        rationale     TEXT NOT NULL DEFAULT '',
+                        deny_examples TEXT NOT NULL DEFAULT '[]',
+                        is_active     INTEGER NOT NULL DEFAULT 1,
+                        created_at    TEXT NOT NULL,
+                        updated_at    TEXT NOT NULL,
+                        UNIQUE(profile_id, session_id, task_id, name)
+                    )
+                    """
+                )
                 conn.commit()
 
     def load_all_history(self) -> int:
@@ -297,6 +326,11 @@ class HistoryStorage:
                     "SELECT task_id, session_id, title, stage, status, step_index, step_total, "
                     "step_label, expected_action, plan, resume_note, messages, "
                     "created_at, updated_at FROM tasks"
+                ).fetchall()
+                invariant_rows = conn.execute(
+                    "SELECT invariant_id, profile_id, session_id, task_id, category, name, "
+                    "statement, rationale, deny_examples, is_active, created_at, updated_at "
+                    "FROM invariants"
                 ).fetchall()
 
             self._sessions = {}
@@ -388,15 +422,33 @@ class HistoryStorage:
                     "updated_at": row["updated_at"],
                 }
 
+            self._invariants = {}
+            for row in invariant_rows:
+                self._invariants[row["invariant_id"]] = {
+                    "invariant_id": row["invariant_id"],
+                    "profile_id": row["profile_id"] or "",
+                    "session_id": row["session_id"] or "",
+                    "task_id": row["task_id"] or "",
+                    "category": row["category"],
+                    "name": row["name"],
+                    "statement": row["statement"],
+                    "rationale": row["rationale"] or "",
+                    "deny_examples": json.loads(row["deny_examples"] or "[]"),
+                    "is_active": bool(row["is_active"]),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+
         logger.info(
             "Память загружена: сессий — %d, веток — %d, рабочая — %d записей, "
-            "долговременная — %d записей, профилей — %d, задач — %d",
+            "долговременная — %d записей, профилей — %d, задач — %d, инвариантов — %d",
             len(self._sessions),
             len(self._branch_index),
             sum(len(v) for v in self._working.values()),
             len(self._long_term),
             len(self._profiles),
             len(self._tasks),
+            len(self._invariants),
         )
         return len(self._sessions)
 
@@ -932,6 +984,10 @@ class HistoryStorage:
                 conn.execute("UPDATE conversations SET profile_id = NULL WHERE profile_id = ?", (profile_id,))
                 for k in keys_to_delete:
                     conn.execute("DELETE FROM long_term_memory WHERE key = ?", (k,))
+                # Инварианты, привязанные к удаляемому профилю, тоже удаляем.
+                self._purge_invariants_locked(
+                    conn, lambda inv: (inv.get("profile_id") or "") == profile_id
+                )
                 conn.commit()
             return True
 
@@ -1080,6 +1136,160 @@ class HistoryStorage:
             "working": working,
             "long_term": long_term,
         }
+
+    # ------------------------------------------------------------------
+    # Инварианты (жёсткие ограничения агента)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _persist_invariant(conn: sqlite3.Connection, inv: dict) -> None:
+        conn.execute(
+            """
+            INSERT INTO invariants
+                (invariant_id, profile_id, session_id, task_id, category, name,
+                 statement, rationale, deny_examples, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(invariant_id) DO UPDATE SET
+                profile_id    = excluded.profile_id,
+                session_id    = excluded.session_id,
+                task_id       = excluded.task_id,
+                category      = excluded.category,
+                name          = excluded.name,
+                statement     = excluded.statement,
+                rationale     = excluded.rationale,
+                deny_examples = excluded.deny_examples,
+                is_active     = excluded.is_active,
+                updated_at    = excluded.updated_at
+            """,
+            (
+                inv["invariant_id"], inv["profile_id"], inv["session_id"], inv["task_id"],
+                inv["category"], inv["name"], inv["statement"], inv["rationale"],
+                json.dumps(inv["deny_examples"], ensure_ascii=False),
+                1 if inv["is_active"] else 0,
+                inv["created_at"], inv["updated_at"],
+            ),
+        )
+
+    def list_invariants(self) -> List[dict]:
+        with self._lock:
+            return [dict(i) for i in self._invariants.values()]
+
+    def get_invariant(self, invariant_id: str) -> Optional[dict]:
+        with self._lock:
+            inv = self._invariants.get(invariant_id)
+            return dict(inv) if inv else None
+
+    def save_invariant(self, inv: dict) -> dict:
+        """Создаёт или обновляет инвариант.
+
+        Скоуп задаётся тремя полями profile_id / session_id / task_id; пустое поле
+        означает «без привязки к этому измерению», все три пустые — глобальный.
+        """
+        now = _now()
+        name = (inv.get("name") or "").strip()
+        statement = (inv.get("statement") or "").strip()
+        if not name:
+            raise ValueError("Для инварианта нужен непустой 'name'")
+        if not statement:
+            raise ValueError("Для инварианта нужен непустой 'statement'")
+        category = _normalize_kind(inv.get("category"), INVARIANT_CATEGORIES, "business_rule")
+
+        deny_examples = inv.get("deny_examples") or []
+        if isinstance(deny_examples, str):
+            try:
+                deny_examples = json.loads(deny_examples) if deny_examples else []
+            except Exception:
+                deny_examples = []
+        deny_examples = [str(x).strip() for x in deny_examples if str(x).strip()]
+
+        profile_id = (inv.get("profile_id") or "").strip()
+        session_id = (inv.get("session_id") or "").strip()
+        task_id = (inv.get("task_id") or "").strip()
+        is_active = bool(inv.get("is_active", True))
+
+        with self._lock:
+            invariant_id = (inv.get("invariant_id") or "").strip()
+            existing = self._invariants.get(invariant_id) if invariant_id else None
+            if existing is None:
+                invariant_id = uuid.uuid4().hex
+            created_at = existing["created_at"] if existing else now
+            record = {
+                "invariant_id": invariant_id,
+                "profile_id": profile_id,
+                "session_id": session_id,
+                "task_id": task_id,
+                "category": category,
+                "name": name,
+                "statement": statement,
+                "rationale": (inv.get("rationale") or "").strip(),
+                "deny_examples": deny_examples,
+                "is_active": is_active,
+                "created_at": created_at,
+                "updated_at": now,
+            }
+            self._invariants[invariant_id] = record
+            with closing(self._connect()) as conn:
+                self._persist_invariant(conn, record)
+                conn.commit()
+        return dict(record)
+
+    def delete_invariant(self, invariant_id: str) -> bool:
+        with self._lock:
+            removed = self._invariants.pop(invariant_id, None)
+            if removed is None:
+                return False
+            with closing(self._connect()) as conn:
+                conn.execute("DELETE FROM invariants WHERE invariant_id = ?", (invariant_id,))
+                conn.commit()
+            return True
+
+    def set_invariant_active(self, invariant_id: str, is_active: bool) -> Optional[dict]:
+        now = _now()
+        with self._lock:
+            inv = self._invariants.get(invariant_id)
+            if inv is None:
+                return None
+            inv["is_active"] = bool(is_active)
+            inv["updated_at"] = now
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    "UPDATE invariants SET is_active = ?, updated_at = ? WHERE invariant_id = ?",
+                    (1 if inv["is_active"] else 0, now, invariant_id),
+                )
+                conn.commit()
+            return dict(inv)
+
+    def get_applicable_invariants(
+        self,
+        profile_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> List[dict]:
+        """Инварианты, применимые к запросу: активные и совпадающие по всем
+        заполненным измерениям скоупа (пустое поле инварианта = «любое значение»)."""
+        profile_id = (profile_id or "").strip()
+        session_id = (session_id or "").strip()
+        task_id = (task_id or "").strip()
+        with self._lock:
+            result = []
+            for inv in self._invariants.values():
+                if not inv.get("is_active"):
+                    continue
+                if inv.get("profile_id") and inv["profile_id"] != profile_id:
+                    continue
+                if inv.get("session_id") and inv["session_id"] != session_id:
+                    continue
+                if inv.get("task_id") and inv["task_id"] != task_id:
+                    continue
+                result.append(dict(inv))
+            return result
+
+    def _purge_invariants_locked(self, conn: sqlite3.Connection, predicate) -> List[str]:
+        """Удаляет инварианты, удовлетворяющие predicate (вызывать под self._lock)."""
+        doomed = [iid for iid, inv in self._invariants.items() if predicate(inv)]
+        for iid in doomed:
+            self._invariants.pop(iid, None)
+            conn.execute("DELETE FROM invariants WHERE invariant_id = ?", (iid,))
+        return doomed
 
     # ------------------------------------------------------------------
     # Задачи (конечный автомат)
@@ -1314,6 +1524,9 @@ class HistoryStorage:
             with closing(self._connect()) as conn:
                 conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
                 conn.execute("DELETE FROM task_transitions WHERE task_id = ?", (task_id,))
+                self._purge_invariants_locked(
+                    conn, lambda inv: (inv.get("task_id") or "") == task_id
+                )
                 conn.commit()
             return True
 
@@ -1333,7 +1546,8 @@ class HistoryStorage:
                 self._branch_index.pop(branch_id, None)
             self._working.pop(session_id, None)
             # Удаляем задачи сессии (их журнал переходов — тоже).
-            for tid in [t for t in self._tasks if self._tasks[t]["session_id"] == session_id]:
+            session_task_ids = [t for t in self._tasks if self._tasks[t]["session_id"] == session_id]
+            for tid in session_task_ids:
                 self._tasks.pop(tid, None)
             with closing(self._connect()) as conn:
                 conn.execute("DELETE FROM conversations WHERE session_id = ?", (session_id,))
@@ -1342,6 +1556,12 @@ class HistoryStorage:
                 conn.execute("DELETE FROM memory_log WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM task_transitions WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM tasks WHERE session_id = ?", (session_id,))
+                # Инварианты, привязанные к сессии или к её задачам, удаляем.
+                self._purge_invariants_locked(
+                    conn,
+                    lambda inv: (inv.get("session_id") or "") == session_id
+                    or (inv.get("task_id") or "") in session_task_ids,
+                )
                 conn.commit()
             return True
 

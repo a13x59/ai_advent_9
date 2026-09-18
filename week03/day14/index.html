@@ -1102,6 +1102,108 @@
             gap: 10px;
         }
 
+        /* Инварианты (жёсткие ограничения агента) */
+        .inv-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            margin-bottom: 14px;
+        }
+
+        .invariant-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            font-size: 13px;
+            color: #cbd5e0;
+        }
+
+        .invariant-item.off {
+            opacity: 0.5;
+        }
+
+        .invariant-item .t-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .invariant-item .t-title {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .invariant-item .t-sub {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .inv-form {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .inv-form input, .inv-form textarea, .inv-form select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            width: 100%;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .inv-form input:focus, .inv-form textarea:focus, .inv-form select:focus {
+            outline: none;
+            border-color: #fdcb6e;
+        }
+
+        .inv-form .inv-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .inv-form .inv-row > div {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .inv-form .inv-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .inv-field-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            font-weight: 600;
+        }
+
+        .refusal-chip {
+            display: inline-block;
+            background: rgba(245, 101, 101, 0.2);
+            color: #ff7675;
+            border: 1px solid rgba(245, 101, 101, 0.4);
+            border-radius: 6px;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
         /* Управление ветками (стратегия branching) */
         .branch-controls {
             display: none;
@@ -1275,6 +1377,9 @@
                 <button class="tool-btn" id="taskOpenBtn">🎯 Задача
                     <span class="memory-badge" id="taskBadge">нет</span>
                 </button>
+                <button class="tool-btn" id="invariantOpenBtn">🛡 Инварианты
+                    <span class="memory-badge" id="invariantBadge">0</span>
+                </button>
             </div>
 
             <div class="task-panel" id="taskPanel">
@@ -1434,6 +1539,52 @@
     </div>
 </div>
 
+<!-- Модальное окно: Инварианты (жёсткие ограничения) -->
+<div class="modal-overlay" id="invariantModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🛡 Инварианты — нерушимые ограничения</div>
+            <button class="modal-close" data-close="invariantModal" title="Закрыть">✕</button>
+        </div>
+        <div class="inv-list" id="invariantList"></div>
+        <div class="inv-form">
+            <label class="inv-field-label" for="invName">Имя правила</label>
+            <input id="invName" placeholder="напр. Стек — только Python">
+            <div class="inv-row">
+                <div>
+                    <label class="inv-field-label" for="invCategory">Категория</label>
+                    <select id="invCategory">
+                        <option value="architecture">архитектура</option>
+                        <option value="decision">техническое решение</option>
+                        <option value="stack">стек</option>
+                        <option value="business_rule">бизнес-правило</option>
+                        <option value="custom">прочее</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="inv-field-label" for="invScope">Скоуп</label>
+                    <select id="invScope">
+                        <option value="global">глобальный (весь агент)</option>
+                        <option value="profile">профиль (текущий)</option>
+                        <option value="session">сессия (текущая)</option>
+                        <option value="task">задача (текущая)</option>
+                    </select>
+                </div>
+            </div>
+            <label class="inv-field-label" for="invStatement">Формулировка (само правило)</label>
+            <textarea id="invStatement" rows="2" placeholder="напр. Весь код пишется только на Python 3.11"></textarea>
+            <label class="inv-field-label" for="invRationale">Почему нельзя нарушать</label>
+            <textarea id="invRationale" rows="2" placeholder="напр. команда стандартизировала стек"></textarea>
+            <label class="inv-field-label" for="invDenyExamples">Примеры нарушений (через запятую; для мок-проверки)</label>
+            <input id="invDenyExamples" placeholder="напр. go, rust, node, c++">
+            <div class="inv-actions">
+                <button class="btn-mem-save" id="invSaveBtn">💾 Сохранить инвариант</button>
+                <button class="btn-suggest" id="invNewBtn">➕ Новый</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     // === Конфигурация ===
     const API_BASE = 'http://localhost:8000';
@@ -1500,6 +1651,18 @@
     const taskListBtn = document.getElementById('taskListBtn');
     const taskList = document.getElementById('taskList');
     const taskNewBtn = document.getElementById('taskNewBtn');
+    // Инварианты (жёсткие ограничения агента)
+    const invariantBadge = document.getElementById('invariantBadge');
+    const invariantOpenBtn = document.getElementById('invariantOpenBtn');
+    const invariantList = document.getElementById('invariantList');
+    const invName = document.getElementById('invName');
+    const invCategory = document.getElementById('invCategory');
+    const invScope = document.getElementById('invScope');
+    const invStatement = document.getElementById('invStatement');
+    const invRationale = document.getElementById('invRationale');
+    const invDenyExamples = document.getElementById('invDenyExamples');
+    const invSaveBtn = document.getElementById('invSaveBtn');
+    const invNewBtn = document.getElementById('invNewBtn');
 
     const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
     const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
@@ -1519,6 +1682,12 @@
         model_call: 'агент продолжит сам', wait_user: 'ждёт ввода', confirm: 'ждёт подтверждения', done: 'завершено'
     };
 
+    // Инварианты (жёсткие ограничения)
+    const INV_CATEGORY_LABELS = {
+        architecture: 'архитектура', decision: 'техническое решение',
+        stack: 'стек', business_rule: 'бизнес-правило', custom: 'прочее'
+    };
+
     // === Состояние ===
     let history = [];
     let branches = [];
@@ -1531,6 +1700,8 @@
     let sessionProfileId = null;
     let tasks = [];
     let currentTaskId = null;
+    let invariants = [];
+    let editingInvariantId = null;
 
     // === Модальные окна ===
     function openModal(id) {
@@ -1577,9 +1748,11 @@
         history.forEach(msg => {
             const div = document.createElement('div');
             div.className = `message ${msg.role}`;
+            const refused = /^⛔\s*Отказываюсь/.test(msg.content || '');
+            const chip = refused ? '<div class="refusal-chip">⛔ нарушен инвариант</div>' : '';
             div.innerHTML = `
         <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
-        <div class="bubble">${escapeHtml(msg.content)}</div>
+        <div class="bubble">${chip}${escapeHtml(msg.content)}</div>
       `;
             chatMessages.appendChild(div);
         });
@@ -2162,6 +2335,150 @@
         await loadTasks();
     }
 
+    // === Инварианты (жёсткие ограничения агента) ===
+    function invScopeOf(inv) {
+        if (inv.task_id) return 'task';
+        if (inv.session_id) return 'session';
+        if (inv.profile_id) return 'profile';
+        return 'global';
+    }
+
+    function invScopeLabel(inv) {
+        const parts = [];
+        if (inv.profile_id) parts.push('профиль');
+        if (inv.session_id) parts.push('сессия');
+        if (inv.task_id) parts.push('задача');
+        return parts.length ? parts.join('+') : 'глобальный';
+    }
+
+    function renderInvariants() {
+        const active = invariants.filter(i => i.is_active);
+        invariantBadge.textContent = `${active.length}/${invariants.length}`;
+        if (!invariants.length) {
+            invariantList.innerHTML = '<div class="mem-empty">Нет инвариантов. Добавьте правило, которое агент не вправе нарушать.</div>';
+            return;
+        }
+        invariantList.innerHTML = invariants.map(inv => {
+            const cat = INV_CATEGORY_LABELS[inv.category] || inv.category;
+            const scope = invScopeLabel(inv);
+            const chip = inv.is_active
+                ? '<span class="task-status-chip active">активен</span>'
+                : '<span class="task-status-chip paused">выкл</span>';
+            const deny = (inv.deny_examples && inv.deny_examples.length)
+                ? `<div class="t-sub">Примеры нарушений: ${escapeHtml(inv.deny_examples.join(', '))}</div>` : '';
+            const why = inv.rationale ? `<div class="t-sub">Почему нельзя: ${escapeHtml(inv.rationale)}</div>` : '';
+            return `
+          <div class="invariant-item${inv.is_active ? '' : ' off'}">
+            <div class="t-main">
+              <div class="t-title">${escapeHtml(inv.name)}
+                <span class="mem-kind">${escapeHtml(cat)}</span>
+                <span class="mem-kind" style="background:rgba(0,184,148,0.25);color:#81ecec">${escapeHtml(scope)}</span>
+              </div>
+              <div class="t-sub">${escapeHtml(inv.statement)}</div>
+              ${why}${deny}
+            </div>
+            ${chip}
+            <button class="task-btn" data-inv-action="toggle" data-id="${escapeAttr(inv.invariant_id)}" title="Вкл/выкл">${inv.is_active ? '⏸' : '▶'}</button>
+            <button class="task-btn" data-inv-action="edit" data-id="${escapeAttr(inv.invariant_id)}" title="Редактировать">✎</button>
+            <button class="task-btn" data-inv-action="delete" data-id="${escapeAttr(inv.invariant_id)}" title="Удалить">✕</button>
+          </div>`;
+        }).join('');
+    }
+
+    function fillInvariantForm(inv) {
+        editingInvariantId = inv ? inv.invariant_id : null;
+        invName.value = inv ? (inv.name || '') : '';
+        invCategory.value = inv ? (inv.category || 'business_rule') : 'business_rule';
+        invScope.value = inv ? invScopeOf(inv) : 'global';
+        invStatement.value = inv ? (inv.statement || '') : '';
+        invRationale.value = inv ? (inv.rationale || '') : '';
+        invDenyExamples.value = inv ? ((inv.deny_examples || []).join(', ')) : '';
+    }
+
+    function newInvariant() {
+        fillInvariantForm(null);
+        invName.focus();
+    }
+
+    async function loadInvariants() {
+        try {
+            const data = await apiFetch('/invariants');
+            invariants = data.invariants || [];
+            renderInvariants();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    async function saveInvariant() {
+        const name = invName.value.trim();
+        const statement = invStatement.value.trim();
+        if (!name || !statement) {
+            alert('Укажите имя и формулировку инварианта');
+            return;
+        }
+        const body = {
+            name: name,
+            statement: statement,
+            category: invCategory.value,
+            rationale: invRationale.value.trim(),
+            deny_examples: invDenyExamples.value.split(',').map(s => s.trim()).filter(Boolean),
+            is_active: true,
+            profile_id: '', session_id: '', task_id: '',
+        };
+        const scope = invScope.value;
+        if (scope === 'profile') {
+            const pid = currentProfileId();
+            if (!pid) { alert('Для скоупа «профиль» нужен активный профиль'); return; }
+            body.profile_id = pid;
+        } else if (scope === 'session') {
+            if (!sessionId) { alert('Для скоупа «сессия» нужен активный диалог'); return; }
+            body.session_id = sessionId;
+        } else if (scope === 'task') {
+            if (!currentTaskId) { alert('Для скоупа «задача» нужна активная задача'); return; }
+            body.task_id = currentTaskId;
+        }
+        if (editingInvariantId) body.invariant_id = editingInvariantId;
+        try {
+            const data = await apiFetch('/invariants', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            invariants = data.invariants || [];
+            renderInvariants();
+            newInvariant();
+        } catch (err) {
+            alert(`Ошибка сохранения инварианта: ${err.message}`);
+        }
+    }
+
+    async function toggleInvariant(invariantId) {
+        try {
+            await apiFetch(`/invariants/${encodeURIComponent(invariantId)}/toggle`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: '{}',
+            });
+            await loadInvariants();
+        } catch (err) {
+            alert(`Ошибка переключения инварианта: ${err.message}`);
+        }
+    }
+
+    async function deleteInvariant(invariantId) {
+        if (!confirm('Удалить инвариант?')) return;
+        try {
+            await apiFetch(`/invariants/${encodeURIComponent(invariantId)}`, {method: 'DELETE'});
+            await loadInvariants();
+        } catch (err) {
+            alert(`Ошибка удаления инварианта: ${err.message}`);
+        }
+    }
+
+    async function editInvariant(invariantId) {
+        const inv = invariants.find(i => i.invariant_id === invariantId);
+        if (inv) fillInvariantForm(inv);
+    }
+
     // === Отправка запроса ===
     async function sendRequest() {
         const userMessage = messageEl.value.trim();
@@ -2393,6 +2710,8 @@
         await loadLongTerm();
         // Профиль пользователя тоже глобальный — обновим список.
         await loadProfiles();
+        // Сессия удалена — её инварианты тоже, обновим список.
+        await loadInvariants();
     }
 
     // === Обработчики ===
@@ -2415,6 +2734,9 @@
     taskPauseBtn.addEventListener('click', pauseCurrentTask);
     taskResumeBtn.addEventListener('click', resumeCurrentTask);
     taskNewBtn.addEventListener('click', createNewTask);
+    invSaveBtn.addEventListener('click', saveInvariant);
+    invNewBtn.addEventListener('click', newInvariant);
+    invariantOpenBtn.addEventListener('click', () => openModal('invariantModal'));
 
     // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
     document.querySelectorAll('.modal-overlay').forEach(ov => {
@@ -2464,12 +2786,25 @@
         } else if (action === 'delete') deleteTask(id);
     });
 
+    // Делегирование кликов по кнопкам инвариантов
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-inv-action]');
+        if (!el) return;
+        const action = el.dataset.invAction;
+        const id = el.dataset.id;
+        if (action === 'toggle') toggleInvariant(id);
+        else if (action === 'edit') editInvariant(id);
+        else if (action === 'delete') deleteInvariant(id);
+    });
+
     // === Инициализация ===
     (async function init() {
         updateBranchControlsVisibility();
         updateMemoryForm();
         // Профили — глобальные (не зависят от сессии), загружаем сразу.
         await loadProfiles();
+        // Инварианты тоже видны сразу (глобальные и привязанные к сущностям).
+        await loadInvariants();
         if (sessionId) {
             const restored = await restoreSession(sessionId);
             if (restored) {
