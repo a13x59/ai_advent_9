@@ -1577,6 +1577,10 @@
             <textarea id="invRationale" rows="2" placeholder="напр. команда стандартизировала стек"></textarea>
             <label class="inv-field-label" for="invDenyExamples">Примеры нарушений (через запятую; для мок-проверки)</label>
             <input id="invDenyExamples" placeholder="напр. go, rust, node, c++">
+            <label class="checkbox-row" style="margin:0 0 8px;">
+                <input type="checkbox" id="invActive" checked style="width:auto;">
+                Активен (инвариант применяется)
+            </label>
             <div class="inv-actions">
                 <button class="btn-mem-save" id="invSaveBtn">💾 Сохранить инвариант</button>
                 <button class="btn-suggest" id="invNewBtn">➕ Новый</button>
@@ -1661,6 +1665,7 @@
     const invStatement = document.getElementById('invStatement');
     const invRationale = document.getElementById('invRationale');
     const invDenyExamples = document.getElementById('invDenyExamples');
+    const invActive = document.getElementById('invActive');
     const invSaveBtn = document.getElementById('invSaveBtn');
     const invNewBtn = document.getElementById('invNewBtn');
 
@@ -2378,7 +2383,7 @@
               ${why}${deny}
             </div>
             ${chip}
-            <button class="task-btn" data-inv-action="toggle" data-id="${escapeAttr(inv.invariant_id)}" title="Вкл/выкл">${inv.is_active ? '⏸' : '▶'}</button>
+            <button class="task-btn" data-inv-action="toggle" data-id="${escapeAttr(inv.invariant_id)}" title="${inv.is_active ? 'Выключить правило' : 'Включить правило'}">${inv.is_active ? '⏸' : '▶'}</button>
             <button class="task-btn" data-inv-action="edit" data-id="${escapeAttr(inv.invariant_id)}" title="Редактировать">✎</button>
             <button class="task-btn" data-inv-action="delete" data-id="${escapeAttr(inv.invariant_id)}" title="Удалить">✕</button>
           </div>`;
@@ -2393,6 +2398,7 @@
         invStatement.value = inv ? (inv.statement || '') : '';
         invRationale.value = inv ? (inv.rationale || '') : '';
         invDenyExamples.value = inv ? ((inv.deny_examples || []).join(', ')) : '';
+        invActive.checked = inv ? inv.is_active !== false : true;
     }
 
     function newInvariant() {
@@ -2421,7 +2427,7 @@
             category: invCategory.value,
             rationale: invRationale.value.trim(),
             deny_examples: invDenyExamples.value.split(',').map(s => s.trim()).filter(Boolean),
-            is_active: true,
+            is_active: invActive.checked,
             profile_id: '', session_id: '', task_id: '',
         };
         const scope = invScope.value;

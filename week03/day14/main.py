@@ -253,6 +253,9 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
 
 
 def call_deepseek(messages, request: AgentRequest):
+    print("=======")
+    print(messages)
+    print("=======")
     return call_deepseek_raw(
         messages,
         model=request.model,
@@ -788,6 +791,8 @@ def build_invariants_system_block(invariants) -> str:
         "на соответствие каждому инварианту.",
         "Если запрос или предлагаемое решение нарушает хотя бы один инвариант — "
         "откажись и объясни, какой именно инвариант и почему он не может быть нарушен.",
+        "Это ПОЛНЫЙ актуальный список. Ограничения, упомянутые в истории диалога, "
+        "но не перечисленные здесь, больше НЕ действуют — не применяй их.",
     ]
     for inv in invariants:
         scope = invariant_scope(inv)
@@ -900,6 +905,11 @@ def build_request_messages(strategy, conversation, working, long_term, window_si
     • рабочая          — системный блок (всегда);
     • долговременная   — системный блок (для sticky_facts — только факты kind=fact).
     """
+    # Отказы по инвариантам (и вызвавшие их реплики) НЕ отправляем модели повторно:
+    # текст отказа цитирует правило, и модель «запомнила» бы ограничение даже после
+    # того, как его выключили. В UI отказ остаётся, но в контекст не попадает.
+    conversation = [m for m in (conversation or []) if not m.get("invariant_refusal")]
+
     if strategy == STRATEGY_STICKY_FACTS:
         block = build_memory_system_block(working, long_term, long_term_kinds={"fact"})
     else:
@@ -1101,7 +1111,10 @@ async def agent_endpoint(request: AgentRequest):
         else:
             conversation = storage.load(agent_id) or []
         if current_user_message and (not conversation or conversation[-1] != current_user_message):
-            conversation.append(current_user_message)
+            if refused:
+                conversation.append({**current_user_message, "invariant_refusal": True})
+            else:
+                conversation.append(current_user_message)
 
         # 3. Предложения памяти (опционально). Ничего не сохраняется автоматически.
         suggest_cost = 0.0
@@ -1200,8 +1213,12 @@ async def agent_endpoint(request: AgentRequest):
         total_tokens = prompt_tokens + completion_tokens
 
         # 6. Сохраняем ответ в историю: сообщения задачи — в саму задачу,
-        #    сообщения обычного чата — в сессию.
-        conversation.append({"role": "assistant", "content": content})
+        #    сообщения обычного чата — в сессию. Отказ по инварианту помечаем,
+        #    чтобы не отправлять его модели в следующих запросах.
+        if refused:
+            conversation.append({"role": "assistant", "content": content, "invariant_refusal": True})
+        else:
+            conversation.append({"role": "assistant", "content": content})
         if task is not None:
             storage.save_task_messages(task["task_id"], conversation)
         else:
