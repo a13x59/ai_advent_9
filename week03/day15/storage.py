@@ -23,6 +23,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from task_state import DEFAULT_GUARDS
+
 logger = logging.getLogger("agent.storage")
 
 DB_PATH = os.environ.get(
@@ -51,6 +53,12 @@ def _normalize_kind(kind, allowed, default):
 def _normalize_state(state):
     state = (state or "").strip().lower()
     return state if state in WORKING_STATES else None
+
+
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    """True, если колонка уже есть в таблице (для миграций существующих БД)."""
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r["name"] == column for r in rows)
 
 
 class HistoryStorage:
@@ -243,6 +251,7 @@ class HistoryStorage:
                         expected_action TEXT NOT NULL DEFAULT 'wait_user',
                         plan            TEXT NOT NULL DEFAULT '[]',
                         resume_note     TEXT NOT NULL DEFAULT '',
+                        guards          TEXT NOT NULL DEFAULT '{}',
                         messages        TEXT NOT NULL DEFAULT '[]',
                         created_at      TEXT NOT NULL,
                         updated_at      TEXT NOT NULL
@@ -270,6 +279,7 @@ class HistoryStorage:
                         expected_action TEXT,
                         source          TEXT NOT NULL DEFAULT 'model',
                         reason          TEXT NOT NULL DEFAULT '',
+                        accepted        INTEGER NOT NULL DEFAULT 1,
                         created_at      TEXT NOT NULL
                     )
                     """
@@ -298,6 +308,17 @@ class HistoryStorage:
                     )
                     """
                 )
+                # Миграции существующих БД: добавляем колонки, которых могло не быть
+                # в прежней схеме (guards у задач, accepted в журнале переходов).
+                if not _column_exists(conn, "tasks", "guards"):
+                    conn.execute(
+                        "ALTER TABLE tasks ADD COLUMN guards TEXT NOT NULL DEFAULT '{}'"
+                    )
+                if not _column_exists(conn, "task_transitions", "accepted"):
+                    conn.execute(
+                        "ALTER TABLE task_transitions "
+                        "ADD COLUMN accepted INTEGER NOT NULL DEFAULT 1"
+                    )
                 conn.commit()
 
     def load_all_history(self) -> int:
@@ -324,7 +345,7 @@ class HistoryStorage:
                 ).fetchall()
                 task_rows = conn.execute(
                     "SELECT task_id, session_id, title, stage, status, step_index, step_total, "
-                    "step_label, expected_action, plan, resume_note, messages, "
+                    "step_label, expected_action, plan, resume_note, guards, messages, "
                     "created_at, updated_at FROM tasks"
                 ).fetchall()
                 invariant_rows = conn.execute(
@@ -417,6 +438,7 @@ class HistoryStorage:
                     "expected_action": row["expected_action"],
                     "plan": json.loads(row["plan"] or "[]"),
                     "resume_note": row["resume_note"],
+                    "guards": json.loads(row["guards"] or "{}"),
                     "messages": json.loads(row["messages"] or "[]"),
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
@@ -1301,8 +1323,8 @@ class HistoryStorage:
             """
             INSERT INTO tasks
                 (task_id, session_id, title, stage, status, step_index, step_total,
-                 step_label, expected_action, plan, resume_note, messages, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 step_label, expected_action, plan, resume_note, guards, messages, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(task_id) DO UPDATE SET
                 title           = excluded.title,
                 stage           = excluded.stage,
@@ -1313,6 +1335,7 @@ class HistoryStorage:
                 expected_action = excluded.expected_action,
                 plan            = excluded.plan,
                 resume_note     = excluded.resume_note,
+                guards          = excluded.guards,
                 messages        = excluded.messages,
                 updated_at      = excluded.updated_at
             """,
@@ -1328,6 +1351,7 @@ class HistoryStorage:
                 task["expected_action"],
                 json.dumps(task["plan"], ensure_ascii=False),
                 task["resume_note"],
+                json.dumps(task.get("guards") or {}, ensure_ascii=False),
                 json.dumps(task.get("messages") or [], ensure_ascii=False),
                 task["created_at"],
                 task["updated_at"],
@@ -1347,17 +1371,19 @@ class HistoryStorage:
         expected_action,
         source: str,
         reason: str,
+        accepted: int = 1,
     ) -> None:
         conn.execute(
             """
             INSERT INTO task_transitions
                 (task_id, session_id, from_stage, to_stage, from_status, to_status,
-                 step_label, expected_action, source, reason, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 step_label, expected_action, source, reason, accepted, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id, session_id, from_stage, to_stage, from_status, to_status,
-                step_label, expected_action, source or "model", reason or "", _now(),
+                step_label, expected_action, source or "model", reason or "",
+                accepted, _now(),
             ),
         )
 
@@ -1384,6 +1410,7 @@ class HistoryStorage:
                     "expected_action": "wait_user",
                     "plan": [],
                     "resume_note": "",
+                    "guards": dict(DEFAULT_GUARDS),
                     "messages": [],
                     "created_at": now,
                     "updated_at": now,
@@ -1485,7 +1512,7 @@ class HistoryStorage:
                     self._pause_active_locked(task["session_id"], conn, exclude_task_id=task_id)
                 for key in (
                     "title", "stage", "status", "step_index", "step_total",
-                    "step_label", "expected_action", "plan", "resume_note",
+                    "step_label", "expected_action", "plan", "resume_note", "guards",
                 ):
                     if key in fields:
                         task[key] = fields[key]
@@ -1510,11 +1537,22 @@ class HistoryStorage:
             with closing(self._connect()) as conn:
                 rows = conn.execute(
                     "SELECT id, from_stage, to_stage, from_status, to_status, step_label, "
-                    "expected_action, source, reason, created_at FROM task_transitions "
+                    "expected_action, source, reason, accepted, created_at FROM task_transitions "
                     "WHERE task_id = ? ORDER BY id ASC",
                     (task_id,),
                 ).fetchall()
             return [dict(r) for r in rows]
+
+    def record_rejected_transition(self, task: dict, to_stage: str, reason: str = "", source: str = "model") -> None:
+        """Логирует ОТКЛОНЁННУЮ попытку перехода (accepted=0), не меняя задачу."""
+        with self._lock:
+            with closing(self._connect()) as conn:
+                self._log_task_transition(
+                    conn, task["task_id"], task["session_id"], task["stage"], to_stage,
+                    task["status"], task["status"], task.get("step_label"),
+                    task.get("expected_action"), source, reason, accepted=0,
+                )
+                conn.commit()
 
     def delete_task(self, task_id: str) -> bool:
         with self._lock:

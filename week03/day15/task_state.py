@@ -10,14 +10,20 @@
 ортогональный этапу: пауза возможна на ЛЮБОМ этапе, а в одной сессии может быть
 несколько задач, но активной (не на паузе) — только одна.
 
-Архитектурное разделение:
-  • модель (LLM) сообщает прогресс через скрытый маркер [STATE] {...} (реальный API)
-    или используется детерминированный переход (мок/фолбэк);
-  • этот модуль ВАЛИДИРУЕТ переход (только вперёд по этапам), нормализует
-    значения и рендерит состояние в контекст.
+Явные переходы между состояниями
+--------------------------------
+Переход разрешён ТОЛЬКО если одновременно выполнены:
 
-Таким образом конечный автомат — источник истины: состояние отражает реальный
-прогресс, не откатывается назад и переживает урезание окна истории.
+  1) целевой этап есть в таблице ALLOWED_STAGE_TRANSITIONS для текущего;
+  2) нет перескока: за один ход можно продвинуться максимум на ОДИН этап вперёд
+     (обратные переходы по таблице, например validation → execution, разрешены);
+  3) выполнены гварды (guards) — условия входа в целевой этап:
+       • execution требует guards["plan_approved"] == true;
+       • done      требует guards["validation_passed"] == true.
+
+Гварды меняет ТОЛЬКО пользователь (source="user" / "manual"): модель не может
+сама «утвердить» план или «подтвердить» валидацию. Валидация возвращает явный
+вердикт (accepted / rejected), а не молчаливую коэрцию.
 """
 from typing import Any, Dict, List, Tuple
 
@@ -33,13 +39,28 @@ EXPECTED_ACTIONS: Tuple[str, ...] = ("model_call", "wait_user", "confirm", "done
 # Состояния шагов плана.
 PLAN_STATES: Tuple[str, ...] = ("pending", "in_progress", "done", "blocked")
 
-# Таблица разрешённых переходов между этапами. Перескок через этап ЗАПРЕЩЁН:
-# execution → done невозможно, только execution → validation → done.
+# Таблица разрешённых переходов между этапами. Переход выполняется ТОЛЬКО на один
+# этап за ход (перескок отклоняется в validate_and_apply).
 ALLOWED_STAGE_TRANSITIONS: Dict[str, set] = {
     "planning": {"planning", "execution"},
     "execution": {"execution", "validation"},
     "validation": {"execution", "validation", "done"},
     "done": {"done"},
+}
+
+# Гварды — условия, без которых нельзя ВОЙТИ в этап.
+DEFAULT_GUARDS: Dict[str, bool] = {"plan_approved": False, "validation_passed": False}
+
+# Какой гвард требуется для входа в этап.
+STAGE_GUARDS: Dict[str, Tuple[str, ...]] = {
+    "execution": ("plan_approved",),
+    "done": ("validation_passed",),
+}
+
+# Человекочитаемые названия гвардов (для сообщений и UI).
+GUARD_LABELS: Dict[str, str] = {
+    "plan_approved": "план утверждён",
+    "validation_passed": "валидация подтверждена",
 }
 
 
@@ -67,34 +88,13 @@ def normalize_expected_action(value: Any, default: str = "wait_user") -> str:
     return value if is_valid_expected_action(value) else default
 
 
-def can_transition(from_stage: str, to_stage: str) -> bool:
-    """True, если переход между этапами разрешён таблицей."""
-    if not is_valid_stage(from_stage) or not is_valid_stage(to_stage):
-        return False
-    return to_stage in ALLOWED_STAGE_TRANSITIONS.get(from_stage, set())
-
-
-def forward_stage_path(from_stage: str, to_stage: str) -> List[str]:
-    """Список промежуточных этапов для движения вперёд СТРОГО по таблице переходов.
-
-    Например, execution → done вернёт ["validation", "done"] — перескок этапа
-    невозможен, но каждый шаг цепочки легален.
-    """
-    if not is_valid_stage(from_stage) or not is_valid_stage(to_stage):
-        return []
-    fi = STAGES.index(from_stage)
-    ti = STAGES.index(to_stage)
-    if ti <= fi:
-        return []
-    return list(STAGES[fi + 1:ti + 1])
-
-
-def coerce_transition(from_stage: str, requested_stage: Any) -> str:
-    """Возвращает допустимый целевой этап (мягкая коэрция при запрете)."""
-    requested = normalize_stage(requested_stage, from_stage)
-    if can_transition(from_stage, requested):
-        return requested
-    return from_stage
+def normalize_guards(guards: Any) -> Dict[str, bool]:
+    """Приводит словарь гвардов к каноническому виду (все ключи + bool)."""
+    out = dict(DEFAULT_GUARDS)
+    if isinstance(guards, dict):
+        for key in DEFAULT_GUARDS:
+            out[key] = bool(guards.get(key, DEFAULT_GUARDS[key]))
+    return out
 
 
 def normalize_plan(plan: Any) -> List[dict]:
@@ -115,6 +115,57 @@ def normalize_plan(plan: Any) -> List[dict]:
     return out
 
 
+def _stage_index(stage: str) -> int:
+    try:
+        return STAGES.index(stage)
+    except ValueError:
+        return -1
+
+
+def missing_guards_for(guards: Dict[str, bool], stage: str) -> List[str]:
+    """Список невыполненных гвардов, требуемых для входа в stage."""
+    return [g for g in STAGE_GUARDS.get(stage, ()) if not guards.get(g, False)]
+
+
+def is_forward_jump(from_stage: str, to_stage: str) -> bool:
+    """True, если переход идёт вперёд больше чем на один этап (перескок)."""
+    return _stage_index(to_stage) > _stage_index(from_stage) + 1
+
+
+def allowed_next_stages(task: Dict[str, Any]) -> List[str]:
+    """Этапы, в которые можно перейти ПРЯМО СЕЙЧАС (таблица + один шаг + гварды)."""
+    from_stage = normalize_stage(task.get("stage"))
+    guards = normalize_guards(task.get("guards"))
+    out: List[str] = []
+    for to in STAGES:  # канонический порядок этапов (не порядок set)
+        if to not in ALLOWED_STAGE_TRANSITIONS.get(from_stage, set()):
+            continue
+        if is_forward_jump(from_stage, to):
+            continue
+        if to != from_stage and missing_guards_for(guards, to):
+            continue
+        out.append(to)
+    return out
+
+
+def blocked_next_stages(task: Dict[str, Any]) -> List[dict]:
+    """Этапы, легальные по таблице/шагу, но заблокированные невыполненным гвардом."""
+    from_stage = normalize_stage(task.get("stage"))
+    guards = normalize_guards(task.get("guards"))
+    out: List[dict] = []
+    for to in STAGES:
+        if to not in ALLOWED_STAGE_TRANSITIONS.get(from_stage, set()):
+            continue
+        if is_forward_jump(from_stage, to):
+            continue
+        if to == from_stage:
+            continue
+        missing = missing_guards_for(guards, to)
+        if missing:
+            out.append({"stage": to, "missing_guards": missing})
+    return out
+
+
 def build_resume_note(stage: str, step_index: int, step_total: int, step_label: str) -> str:
     """Краткое описание текущего положения — точка восстановления после паузы."""
     if stage == "done":
@@ -124,16 +175,77 @@ def build_resume_note(stage: str, step_index: int, step_total: int, step_label: 
     return f"этап {stage}, {position}{label}"
 
 
-def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[dict, dict]:
-    """Валидирует предложение модели и возвращает (fields, transition).
+def validate_and_apply(task: Dict[str, Any], update: Dict[str, Any], source: str = "model") -> dict:
+    """Валидирует предложенный переход и возвращает явный вердикт.
 
-    fields     — поля задачи для сохранения (без служебных timestamp).
-    transition — словарь для журнала переходов.
+    Никакой тихой коэрции: если переход недопустим, возвращается rejected с причиной
+    и списком разрешённых этапов.
+
+    Возвращает dict:
+      accepted   — True/False;
+      reason     — причина перехода (accepted) или отказа (rejected);
+      allowed    — этапы, доступные сейчас;
+      blocked    — этапы, заблокированные невыполненными гвардами;
+      fields     — поля задачи для сохранения (только при accepted);
+      transition — запись для журнала переходов (только при accepted).
     """
-    current_stage = task.get("stage", "planning")
-    new_stage = coerce_transition(current_stage, update.get("stage"))
+    update = update or {}
+    from_stage = normalize_stage(task.get("stage"))
+    allowed = allowed_next_stages(task)
+    blocked = blocked_next_stages(task)
 
-    # Копия, чтобы не мутировать входной словарь задачи.
+    verdict: Dict[str, Any] = {
+        "accepted": False,
+        "reason": "",
+        "allowed": allowed,
+        "blocked": blocked,
+        "fields": None,
+        "transition": None,
+    }
+
+    # 0. Недопустимое значение этапа — явный отказ.
+    raw_stage = update.get("stage")
+    if raw_stage is not None and not is_valid_stage(raw_stage):
+        verdict["reason"] = (
+            f"Недопустимое состояние: {raw_stage!r}. Допустимые: {', '.join(STAGES)}."
+        )
+        return verdict
+    requested = normalize_stage(raw_stage, from_stage)
+
+    # 1. Запрет перескока через этап (проверяем до таблицы, чтобы дать точную причину).
+    if is_forward_jump(from_stage, requested):
+        verdict["reason"] = (
+            f"Нельзя перепрыгнуть этап: «{from_stage} → {requested}». "
+            f"За один ход можно только: {', '.join(allowed) or '—'}."
+        )
+        return verdict
+
+    # 2. Таблица переходов.
+    if requested not in ALLOWED_STAGE_TRANSITIONS.get(from_stage, set()):
+        verdict["reason"] = (
+            f"Переход «{from_stage} → {requested}» запрещён. "
+            f"Разрешено: {', '.join(allowed) or '—'}."
+        )
+        return verdict
+
+    # 3. Гварды. Пользователь может выставить гвард этим же обновлением (approve),
+    #    поэтому учитываем гварды из update для source=user/manual.
+    guards = normalize_guards(task.get("guards"))
+    if source in ("user", "manual"):
+        up_guards = update.get("guards")
+        if isinstance(up_guards, dict):
+            for key in DEFAULT_GUARDS:
+                if key in up_guards:
+                    guards[key] = bool(up_guards[key])
+
+    if requested != from_stage:
+        missing = missing_guards_for(guards, requested)
+        if missing:
+            labels = ", ".join(GUARD_LABELS.get(g, g) for g in missing)
+            verdict["reason"] = f"Переход в «{requested}» требует условия: {labels}."
+            return verdict
+
+    # --- Переход принят: вычисляем поля задачи. ---
     plan = [dict(s) for s in (task.get("plan") or [])]
     if update.get("plan"):
         plan = normalize_plan(update["plan"])
@@ -150,7 +262,7 @@ def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[di
 
     step_label = str(update.get("step_label") or task.get("step_label") or "").strip()
 
-    if new_stage == "done":
+    if requested == "done":
         status = "done"
         expected_action = "done"
     else:
@@ -160,8 +272,7 @@ def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[di
         )
 
     # Синхронизируем состояния шагов плана с фактическим прогрессом.
-    # На этапах validation/done выполнение считается завершённым — все шаги done.
-    if new_stage in ("validation", "done"):
+    if requested in ("validation", "done"):
         if step_total and step_index < step_total:
             step_index = step_total
         for s in plan:
@@ -175,30 +286,41 @@ def apply_state_update(task: Dict[str, Any], update: Dict[str, Any]) -> Tuple[di
                 s["state"] = "in_progress"
 
     fields = {
-        "stage": new_stage,
+        "stage": requested,
         "status": status,
         "step_index": step_index,
         "step_total": step_total,
         "step_label": step_label,
         "expected_action": expected_action,
         "plan": plan,
-        "resume_note": build_resume_note(new_stage, step_index, step_total, step_label),
+        "guards": guards,
+        "resume_note": build_resume_note(requested, step_index, step_total, step_label),
     }
     transition = {
-        "from_stage": current_stage,
-        "to_stage": new_stage,
+        "from_stage": from_stage,
+        "to_stage": requested,
         "step_label": step_label,
         "expected_action": expected_action,
         "reason": str(update.get("reason") or ""),
     }
-    return fields, transition
+    verdict.update({
+        "accepted": True,
+        "reason": transition["reason"],
+        "fields": fields,
+        "transition": transition,
+    })
+    return verdict
 
 
 _STEP_MARKERS = {"done": "[x]", "in_progress": "[>]", "blocked": "[!]", "pending": "[ ]"}
 
 
 def render_task_block(task: Dict[str, Any]) -> str:
-    """Системный блок с текущим состоянием задачи для контекста модели."""
+    """Системный блок с текущим состоянием задачи для контекста модели.
+
+    Включает разрешённые переходы и состояние гвардов, чтобы модель знала, что
+    ей доступно и какие переходы выполняет только пользователь.
+    """
     if not task:
         return ""
     lines = ["Текущая задача (конечный автомат):"]
@@ -213,6 +335,21 @@ def render_task_block(task: Dict[str, Any]) -> str:
             f" · {task.get('step_label') or '—'}"
         )
     lines.append(f"- Ожидаемое действие: {task.get('expected_action', 'wait_user')}")
+
+    guards = normalize_guards(task.get("guards"))
+    lines.append(
+        "- Гварды: "
+        + f"{GUARD_LABELS['plan_approved']}={'да' if guards['plan_approved'] else 'нет'}, "
+        + f"{GUARD_LABELS['validation_passed']}={'да' if guards['validation_passed'] else 'нет'}"
+    )
+
+    allowed = allowed_next_stages(task)
+    blocked = blocked_next_stages(task)
+    lines.append(f"- Разрешённые переходы: {', '.join(allowed) or '—'}")
+    for b in blocked:
+        labels = ", ".join(GUARD_LABELS.get(g, g) for g in b["missing_guards"])
+        lines.append(f"  • этап «{b['stage']}» заблокирован: нужно {labels}")
+
     plan = task.get("plan") or []
     if plan:
         lines.append("- План:")
@@ -233,6 +370,3 @@ def render_resume_instruction(task: Dict[str, Any]) -> str:
         f"Задача «{title}» возобновлена после паузы. Ты остановился на: {note}. "
         "Продолжай с этого места — не объясняй задачу заново и не переспрашивай, что делать."
     )
-
-
-

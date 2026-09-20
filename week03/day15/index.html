@@ -2249,6 +2249,8 @@
             parts.push(`шаг ${t.step_index}/${t.step_total} · ${escapeHtml(t.step_label || '—')}`);
         }
         parts.push(`действие: ${ACTION_LABELS[t.expected_action] || t.expected_action}`);
+        const g = t.guards || {};
+        parts.push(`гварды: план ${g.plan_approved ? '✓' : '✗'} · валидация ${g.validation_passed ? '✓' : '✗'}`);
         taskMeta.innerHTML = parts.join(' · ');
 
         taskPauseBtn.disabled = (t.status !== 'active');
