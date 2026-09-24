@@ -1204,6 +1204,28 @@
             margin-bottom: 6px;
         }
 
+        /* Бейдж вызова MCP-инструмента */
+        .tool-chip {
+            display: inline-block;
+            background: rgba(108, 92, 231, 0.25);
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            border-radius: 6px;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #d6d2ff;
+            margin-bottom: 6px;
+        }
+
+        /* Быстрые действия для демо MCP-инструментов */
+        .quick-tools {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
         /* Управление ветками (стратегия branching) */
         .branch-controls {
             display: none;
@@ -1353,6 +1375,11 @@
                 Генерировать предложения памяти
             </label>
 
+            <label class="checkbox-row">
+                <input type="checkbox" id="enable_tools">
+                🧰 MCP-инструменты (гадание)
+            </label>
+
             <div class="branch-controls" id="branchControls">
                 <div class="branch-row">
                     <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
@@ -1397,6 +1424,11 @@
             <div class="context-summary" id="contextSummary"></div>
 
             <div class="chat-messages" id="chatMessages"></div>
+
+            <div class="quick-tools" id="quickTools">
+                <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
+                <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
+            </div>
 
             <div class="message-input">
                 <textarea id="message" placeholder="Введите ваш запрос..." rows="2"></textarea>
@@ -1605,6 +1637,9 @@
     const stopEl = document.getElementById('stop');
     const maxTokensEl = document.getElementById('max_tokens');
     const autoSuggestEl = document.getElementById('auto_suggest');
+    const enableToolsEl = document.getElementById('enable_tools');
+    const ballBtn = document.getElementById('ballBtn');
+    const bookBtn = document.getElementById('bookBtn');
     const sendBtn = document.getElementById('sendBtn');
     const resetBtn = document.getElementById('resetBtn');
     const chatMessages = document.getElementById('chatMessages');
@@ -1762,6 +1797,45 @@
             chatMessages.appendChild(div);
         });
         chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Показываем вызовы MCP-инструментов отдельными бейджами (не входят в history).
+    function renderToolCalls(calls) {
+        if (!calls || !calls.length) return;
+        calls.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            const status = c.ok ? '✅' : '⚠️';
+            const text = c.result != null ? c.result : (c.error || '');
+            div.innerHTML = `
+        <div class="avatar">🔮</div>
+        <div class="bubble">
+          <div class="tool-chip">${status} инструмент: ${escapeHtml(c.name)}</div>
+          ${escapeHtml(text)}
+        </div>
+      `;
+            chatMessages.appendChild(div);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Быстрое демо: заполнить поле и сразу отправить с включёнными инструментами.
+    function quickBall() {
+        const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
+        if (q === null || !q.trim()) return;
+        enableToolsEl.checked = true;
+        messageEl.value = `Погадай на шаре: ${q.trim()}`;
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickBook() {
+        const q = prompt('Вопрос для гадания по книге:', 'Что ждет моего друга Колю?');
+        if (q === null || !q.trim()) return;
+        enableToolsEl.checked = true;
+        messageEl.value = `Погадай по книге («Алиса в Стране чудес»): ${q.trim()}`;
+        messageEl.focus();
+        sendRequest();
     }
 
     function updateStats(duration, usage, cost) {
@@ -2529,6 +2603,7 @@
             top_p: topP,
             max_tokens: maxTokens,
             auto_suggest_memory: autoSuggestEl.checked,
+            enable_tools: enableToolsEl.checked,
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
@@ -2558,6 +2633,7 @@
                 history.push({role: 'assistant', content: data.response});
             }
             renderChat();
+            renderToolCalls(data.tool_calls || []);
 
             memory = data.memory || {working: [], long_term: []};
             pendingMemory = data.pending_memory || [];
@@ -2725,6 +2801,8 @@
     // === Обработчики ===
     sendBtn.addEventListener('click', sendRequest);
     resetBtn.addEventListener('click', resetChat);
+    ballBtn.addEventListener('click', quickBall);
+    bookBtn.addEventListener('click', quickBook);
     createBranchBtn.addEventListener('click', createBranches);
     branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
     strategyEl.addEventListener('change', updateBranchControlsVisibility);

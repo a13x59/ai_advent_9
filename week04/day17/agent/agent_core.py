@@ -74,6 +74,10 @@ INVARIANT_CATEGORY_LABELS = {
 # Максимальное число повторных генераций при недопустимом маркере [STATE].
 MAX_TRANSITION_RETRIES = 2
 
+# Модели DeepSeek, поддерживающие нативный function calling (tools).
+# deepseek-reasoner и легаси-модели (coder/v4-flash) его не поддерживают.
+TOOL_CAPABLE_MODELS = {"deepseek-chat"}
+
 # ------------------------------------------------------------
 # Промпты (используются реальным провайдером в main.py).
 # ------------------------------------------------------------
@@ -118,10 +122,12 @@ class AgentProvider(ABC):
 
     @abstractmethod
     def complete(self, messages: List[dict], request: "AgentRequest",
-                 task: Optional[dict], user_text: str) -> dict:
+                 task: Optional[dict], user_text: str,
+                 tools: Optional[List[dict]] = None) -> dict:
         """Основная генерация. Возвращает DeepSeek-совместимый dict вида
-        {"choices": [{"message": {"content": ...}}], "usage": {...}}.
+        {"choices": [{"message": {"content": ..., "tool_calls": [...]}}], "usage": {...}}.
         Содержимое content МОЖЕТ содержать строку-маркер [STATE] {...}.
+        tools — опциональный список определений инструментов (function calling).
         """
 
     @abstractmethod
@@ -153,6 +159,7 @@ class AgentRequest(BaseModel):
     max_tokens: Optional[int] = Field(4096, ge=1, le=8192)
     memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
+    enable_tools: bool = Field(False, description="Разрешить вызов MCP-инструментов (function calling)")
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
 
@@ -497,6 +504,132 @@ def _run_task_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
 
 
 # ------------------------------------------------------------
+# Инструменты (MCP) — нативный function calling DeepSeek
+# ------------------------------------------------------------
+def _tools_enabled(request: AgentRequest, mcp_client) -> bool:
+    """Инструменты активны: есть клиент, включены запросом и модель поддерживает tools."""
+    if mcp_client is None:
+        return False
+    if not getattr(request, "enable_tools", False):
+        return False
+    return (getattr(request, "model", "") or "").strip() in TOOL_CAPABLE_MODELS
+
+
+def _deepseek_tools(mcp_tools: List[dict]) -> List[dict]:
+    """Маппинг MCP-инструментов (inputSchema) в формат tools DeepSeek.
+
+    inputSchema у MCP — это уже JSON Schema объекта (type/properties/required),
+    поэтому переносим его в поле parameters практически без изменений.
+    """
+    out = []
+    for t in mcp_tools or []:
+        if not isinstance(t, dict):
+            continue
+        name = (t.get("name") or "").strip()
+        if not name:
+            continue
+        schema = t.get("inputSchema") or {}
+        if not isinstance(schema, dict):
+            schema = {}
+        parameters = dict(schema)
+        parameters.setdefault("type", "object")
+        parameters.setdefault("properties", {})
+        parameters.setdefault("required", [])
+        out.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": t.get("description") or "",
+                "parameters": parameters,
+            },
+        })
+    return out
+
+
+def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: List[dict],
+                   mcp_client, user_text: str):
+    """Один ход чата с инструментами (двухшаговый function calling).
+
+    Раунд 1 — модель получает список инструментов и может вернуть tool_calls;
+    раунд 2 — после подстановки результатов модель пишет финальный ответ,
+    использующий эти результаты.
+
+    Возвращает (content, tool_calls_info, data), где data — данные ПОСЛЕДНЕГО
+    вызова модели (для usage/статистики).
+    """
+    tool_calls_info: List[dict] = []
+    data: dict = {}
+
+    try:
+        mcp_tools = mcp_client.list_tools()
+    except Exception as e:
+        logger.warning("Не удалось получить список инструментов MCP: %s", e)
+        mcp_tools = []
+    tools = _deepseek_tools(mcp_tools)
+
+    if not tools:
+        data = provider.complete(messages, request, None, user_text)
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return content, tool_calls_info, data
+
+    # Раунд 1: модель с инструментами.
+    data = provider.complete(messages, request, None, user_text, tools=tools)
+    message = data.get("choices", [{}])[0].get("message", {}) or {}
+    tool_calls = message.get("tool_calls") or []
+    if not tool_calls:
+        return message.get("content", "") or "", tool_calls_info, data
+
+    # Подставляем ассистентский tool_calls и результаты инструментов.
+    messages.append({
+        "role": "assistant",
+        "content": message.get("content"),
+        "tool_calls": tool_calls,
+    })
+    for tc in tool_calls:
+        fn = tc.get("function") or {}
+        name = (fn.get("name") or "").strip()
+        try:
+            arguments = json.loads(fn.get("arguments") or "{}")
+        except (ValueError, TypeError):
+            arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        try:
+            res = mcp_client.call_tool(name, arguments)
+            if isinstance(res, dict):
+                text = res.get("text", "")
+                ok = bool(res.get("ok", False))
+                error = res.get("error", "")
+            else:
+                text = str(res)
+                ok = False
+                error = ""
+        except Exception as e:
+            text = f"Ошибка вызова инструмента: {e}"
+            ok = False
+            error = str(e)
+
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.get("id", ""),
+            "content": text,
+        })
+        tool_calls_info.append({
+            "name": name,
+            "arguments": arguments,
+            "result": text,
+            "ok": ok,
+            "error": error,
+        })
+
+    # Раунд 2: финальный ответ, использующий результаты инструментов.
+    data = provider.complete(messages, request, None, user_text)
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return content, tool_calls_info, data
+
+
+# ------------------------------------------------------------
 # Генерация предложений памяти
 # ------------------------------------------------------------
 def _kind_or(kind, allowed, default):
@@ -729,11 +862,13 @@ def _resolve_task(store: HistoryStorage, session_id: str, task_id: Optional[str]
 # ------------------------------------------------------------
 # Фабрика FastAPI-приложения
 # ------------------------------------------------------------
-def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None) -> FastAPI:
+def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
+               mcp_client=None) -> FastAPI:
     """Собирает FastAPI-приложение со всеми эндпоинтами на едином пайплайне.
 
-    provider — реальный (DeepSeek) или детерминированный (Mock) провайдер;
-    store    — хранилище (по умолчанию глобальный синглтон; в тестах — отдельный).
+    provider   — реальный (DeepSeek) или детерминированный (Mock) провайдер;
+    store      — хранилище (по умолчанию глобальный синглтон; в тестах — отдельный);
+    mcp_client — клиент MCP-инструментов (list_tools/call_tool); None = без инструментов.
     """
     store = store or default_storage
 
@@ -908,6 +1043,8 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None) 
             context_tokens = estimate_messages_tokens(request_messages)
 
             # 5. Генерация + переход конечного автомата.
+            tools_active = _tools_enabled(request, mcp_client)
+            tool_calls_info: List[dict] = []
             data: dict = {}
             if refused:
                 content = build_refusal_reply(refusal_inv, {
@@ -927,8 +1064,29 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None) 
                     provider, request, request_messages, task, task_was_none, store, user_text
                 )
             else:
-                data = provider.complete(request_messages, request, None, user_text)
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if tools_active:
+                    content, tool_calls_info, data = _run_tool_turn(
+                        provider, request, request_messages, mcp_client, user_text
+                    )
+                else:
+                    data = provider.complete(request_messages, request, None, user_text)
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # 5.1 Результаты успешных вызовов инструментов — в рабочую память.
+            if tool_calls_info:
+                for tc in tool_calls_info:
+                    if tc.get("ok") and tc.get("result"):
+                        try:
+                            store.save_working_entry(agent_id, {
+                                "key": f"mcp:{tc.get('name')}",
+                                "value": tc["result"],
+                                "kind": "result",
+                                "state": "done",
+                                "profile_id": working_profile_id,
+                            })
+                        except Exception as e:
+                            logger.warning("Ошибка сохранения результата инструмента: %s", e)
+                working = store.load_working(agent_id, working_profile_id)
 
             duration = time.time() - start_time
             usage = data.get("usage", {})
@@ -987,6 +1145,8 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None) 
                 "invariants": invariants,
                 "refused": refused,
                 "violated_invariant": violated_invariant,
+                "tool_calls": tool_calls_info,
+                "tools_active": tools_active,
                 "pending_memory": pending_memory,
                 "memory_ops_applied": memory_ops_applied,
                 "duration": round(duration, 3),

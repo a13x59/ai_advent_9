@@ -37,13 +37,39 @@
 
 Агент делает вызов к MCP-инструменту и получает результат
 
-предложи доработки, давай обсудим сперва (ничего не меняй в коде)
+Предложи доработки, давай обсудим сперва (ничего не меняй в коде)
 
 ## Ответ DeepSeek Harness:
-todo
+Готово. Реализовал подключение агента к MCP-сервису по согласованному плану и проверил всё сквозно.
+
+Что сделано
+Новый файл
+
+agent/mcp_client.py — синхронный MCP-клиент (JSON-RPC 2.0 → Streamable HTTP /mcp): ленивый handshake initialize → notifications/initialized → tools/list → tools/call, кэш сессии (Mcp-Session-Id), разбор SSE, McpUnavailable. Без новых зависимостей (использует уже имеющийся requests).
+Правки
+
+agent/agent_core.py — create_app(provider, store, mcp_client=None); поле AgentRequest.enable_tools; гейт _tools_enabled (только deepseek-chat); маппинг _deepseek_tools; двухшаговый цикл _run_tool_turn (модель → tool_calls → MCP → результат → финальный ответ); в ответ /agent добавлены tool_calls и tools_active; успешные результаты кладутся в рабочую память (kind="result").
+agent/main.py — call_deepseek_raw(..., tools=None) + DeepSeekProvider.complete(..., tools=None); инъекция FortuneMcpClient().
+agent/mock_agent.py — MockProvider.complete принимает tools.
+agent/index.html — чекбокс «🧰 MCP-инструменты», кнопки-демо «🎱 Шар»/«📚 Книга», бейдж «🔮 инструмент: …» под ответом.
+agent/test_mcp_tools.py (новый) — юнит клиента на фейковом транспорте, маппинг схем, гейт модели, сквозной флоу, graceful fallback при недоступности, пропуск при выключенных инструментах/неподходящей модели.
+Проверка
+Тесты: 26 passed (pytest).
+Реальный handshake против живого сервера (localhost:8888/mcp) отработал: tools/list вернул обе схемы, tools/call вернул «❓Сдам ли я собеседование? 🔮 Yes.» и «❓Question: Что дальше? 📚 From book: The Art of War …». Протокол-версия 2025-06-18 принята Kotlin SDK 0.15.0.
+main.py
+импортируется без сетевых обращений.
+Как пользоваться
+В веб-странице включите «🧰 MCP-инструменты» и напишите вопрос в свободной форме («Сдам ли я собеседование?», «Что меня ждёт по „Алисе в Стране чудес“?») — модель сама решит по контексту, вызвать ли magic_8_ball или bibliomancy, получит результат и использует его в ответе. Кнопки «🎱 Шар»/«📚 Книга» — быстрый демо-вариант (подставляют вопрос и сразу отправляют).
+
+Примечания:
+
+Чтобы реально заработал вызов DeepSeek, нужен DEEPSEEK_API_KEY; модель для инструментов — deepseek-chat (на deepseek-reasoner инструменты деградируют мягко, без ошибки).
+Для запуска/тестов я создал виртуальное окружение agent/.venv (в нём установлены зависимости из requirements.txt). Запуск: .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000, тесты: .venv/bin/python -m pytest.
+requirements.txt не менялся — новые зависимости не понадобились.
 
 ## Тестовый пример
-todo
+1. Сдам ли я экзамен по сопромату?
+2. Что ждет моего друга Колю по книге Алиса в стране чудес?
 
 
 

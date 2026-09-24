@@ -30,12 +30,13 @@ from agent_core import (
     INVARIANT_CHECK_TEMPERATURE,
     INVARIANT_CHECK_MAX_TOKENS,
 )
+from mcp_client import FortuneMcpClient
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
 
-def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None):
+def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None, tools=None):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
@@ -51,6 +52,8 @@ def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=40
         payload["stop"] = stop
     if top_k:
         payload["top_k"] = top_k
+    if tools:
+        payload["tools"] = tools
 
     response = requests.post(DEEPSEEK_API_URL, json=payload, headers=headers, timeout=60)
     if response.status_code != 200:
@@ -62,7 +65,8 @@ class DeepSeekProvider(AgentProvider):
     """Реальный провайдер: все обращения к модели — через DeepSeek API."""
 
     def complete(self, messages: List[dict], request: AgentRequest,
-                 task: Optional[dict], user_text: str) -> dict:
+                 task: Optional[dict], user_text: str,
+                 tools: Optional[List[dict]] = None) -> dict:
         return call_deepseek_raw(
             messages,
             model=request.model,
@@ -71,6 +75,7 @@ class DeepSeekProvider(AgentProvider):
             max_tokens=request.max_tokens,
             top_k=request.top_k,
             stop=request.stop,
+            tools=tools,
         )
 
     def suggest_memory(self, working, long_term, user_message, model):
@@ -132,7 +137,7 @@ class DeepSeekProvider(AgentProvider):
         }
 
 
-app = create_app(DeepSeekProvider())
+app = create_app(DeepSeekProvider(), mcp_client=FortuneMcpClient())
 
 
 # Запуск: uvicorn main:app --host 0.0.0.0 --port 8000

@@ -32,7 +32,8 @@ class MockProvider(AgentProvider):
     """Детерминированный провайдер: то, что раньше было мок-ветками в main.py."""
 
     def complete(self, messages: List[dict], request: AgentRequest,
-                 task: Optional[dict], user_text: str) -> dict:
+                 task: Optional[dict], user_text: str,
+                 tools: Optional[List[dict]] = None) -> dict:
         if task is None:
             return self._response(_mock_chat_reply(user_text))
         reply, marker = _mock_turn(task, user_text)
