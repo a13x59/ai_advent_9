@@ -1376,8 +1376,8 @@
             </label>
 
             <label class="checkbox-row">
-                <input type="checkbox" id="enable_tools">
-                🧰 MCP-инструменты (гадание)
+                <input type="checkbox" id="enable_tools" checked>
+                🧰 MCP-инструменты (гадание + валюты)
             </label>
 
             <div class="branch-controls" id="branchControls">
@@ -1428,6 +1428,7 @@
             <div class="quick-tools" id="quickTools">
                 <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
                 <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
+                <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
             </div>
 
             <div class="message-input">
@@ -1640,6 +1641,7 @@
     const enableToolsEl = document.getElementById('enable_tools');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
+    const rateBtn = document.getElementById('rateBtn');
     const sendBtn = document.getElementById('sendBtn');
     const resetBtn = document.getElementById('resetBtn');
     const chatMessages = document.getElementById('chatMessages');
@@ -1834,6 +1836,13 @@
         if (q === null || !q.trim()) return;
         enableToolsEl.checked = true;
         messageEl.value = `Погадай по книге («Алиса в Стране чудес»): ${q.trim()}`;
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickRate() {
+        enableToolsEl.checked = true;
+        messageEl.value = 'Выведи текущий курс EUR/USD';
         messageEl.focus();
         sendRequest();
     }
@@ -2803,6 +2812,7 @@
     resetBtn.addEventListener('click', resetChat);
     ballBtn.addEventListener('click', quickBall);
     bookBtn.addEventListener('click', quickBook);
+    rateBtn.addEventListener('click', quickRate);
     createBranchBtn.addEventListener('click', createBranches);
     branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
     strategyEl.addEventListener('change', updateBranchControlsVisibility);

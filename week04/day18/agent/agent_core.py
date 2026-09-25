@@ -579,7 +579,7 @@ def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
         try:
             client_tools = client.list_tools()
         except Exception as e:
-            logger.warning("Не удалось получить список инструментов MCP: %s", e)
+            logger.warning("MCP-клиент %s недоступен (list_tools): %s", type(client).__name__, e)
             continue
         for t in (client_tools or []):
             if not isinstance(t, dict):
@@ -594,6 +594,21 @@ def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
         data = provider.complete(messages, request, None, user_text)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         return content, tool_calls_info, data
+
+    # Явно подсказываем модели, что доступны инструменты и их нужно использовать
+    # для фактических запросов (курсы валют, гадания), а не отвечать по памяти.
+    tool_names = ", ".join(t["function"]["name"] for t in tools)
+    logger.info("MCP tools доступны модели: %s", tool_names)
+    messages.append({
+        "role": "system",
+        "content": (
+            f"Тебе доступны MCP-инструменты: {tool_names}. "
+            "Когда запрос требует фактических данных (курс валют, например "
+            "'выведи USD/EUR' или 'какой курс евро к доллару', а также гадания), "
+            "обязательно вызывай подходящий инструмент и отвечай на основе его "
+            "результата, а не по памяти."
+        ),
+    })
 
     # Раунд 1: модель с инструментами.
     data = provider.complete(messages, request, None, user_text, tools=tools)
@@ -625,6 +640,7 @@ def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
             error = "нет клиента для инструмента"
         else:
             try:
+                logger.info("Вызов MCP-инструмента '%s' args=%s", name, arguments)
                 res = client.call_tool(name, arguments)
                 if isinstance(res, dict):
                     text = res.get("text", "")
