@@ -16,24 +16,25 @@ import os
 import requests
 
 MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8888")
+CURRENCY_MCP_BASE_URL = os.environ.get("CURRENCY_MCP_BASE_URL", "http://localhost:8889")
 MCP_TIMEOUT = float(os.environ.get("MCP_TIMEOUT", "10"))
 
 # Версия протокола, которую клиент заявляет при initialize.
 PROTOCOL_VERSION = "2025-06-18"
-
-CLIENT_INFO = {"name": "agent-fortune-client", "version": "1.0.0"}
 
 
 class McpUnavailable(Exception):
     """MCP-сервис недоступен или вернул ошибку на транспортном/протокольном уровне."""
 
 
-class FortuneMcpClient:
-    """Клиент двух инструментов гадания (magic_8_ball, bibliomancy).
+class McpClient:
+    """Универсальный MCP-клиент (Streamable HTTP, JSON-RPC 2.0).
 
     Интерфейс намеренно похож на MCP-клиент: list_tools() / call_tool(name, args),
     чтобы транспорт можно было заменить, не трогая пайплайн агента.
     """
+
+    CLIENT_NAME = "agent-mcp-client"
 
     def __init__(self, base_url: str = None, timeout: float = None):
         self.base_url = (base_url or MCP_BASE_URL).rstrip("/")
@@ -123,7 +124,7 @@ class FortuneMcpClient:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": CLIENT_INFO,
+                "clientInfo": {"name": self.CLIENT_NAME, "version": "1.0.0"},
             },
         )
         # Уведомление «инициализация завершена» — без id и без ожидания ответа.
@@ -173,3 +174,21 @@ class FortuneMcpClient:
         result = self._rpc("tools/call", {"name": name, "arguments": arguments})
         is_error = bool(result.get("isError")) if isinstance(result, dict) else False
         return {"ok": not is_error, "text": self._extract_text(result)}
+
+
+class FortuneMcpClient(McpClient):
+    """Клиент инструментов гадания (magic_8_ball, bibliomancy)."""
+
+    CLIENT_NAME = "agent-fortune-client"
+
+    def __init__(self, base_url: str = None, timeout: float = None):
+        super().__init__(base_url=base_url or MCP_BASE_URL, timeout=timeout)
+
+
+class CurrencyMcpClient(McpClient):
+    """Клиент инструментов валют (get_rate, get_summary)."""
+
+    CLIENT_NAME = "agent-currency-client"
+
+    def __init__(self, base_url: str = None, timeout: float = None):
+        super().__init__(base_url=base_url or CURRENCY_MCP_BASE_URL, timeout=timeout)

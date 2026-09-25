@@ -30,10 +30,10 @@ from agent_core import (
     INVARIANT_CHECK_TEMPERATURE,
     INVARIANT_CHECK_MAX_TOKENS,
 )
-from mcp_client import FortuneMcpClient
+from mcp_client import FortuneMcpClient, CurrencyMcpClient
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-...")
 
 
 def call_deepseek_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096, top_k=0, stop=None, tools=None):
@@ -137,7 +137,10 @@ class DeepSeekProvider(AgentProvider):
         }
 
 
-app = create_app(DeepSeekProvider(), mcp_client=FortuneMcpClient())
+app = create_app(
+    DeepSeekProvider(),
+    mcp_clients=[FortuneMcpClient(), CurrencyMcpClient()],
+)
 
 
 # Запуск: uvicorn main:app --host 0.0.0.0 --port 8000

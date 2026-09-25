@@ -281,3 +281,64 @@ def test_tools_disabled_skips_mcp():
         assert mcp.calls == []
     finally:
         os.remove(path)
+
+
+def test_multiple_mcp_clients_route_to_correct_client():
+    """Несколько MCP-сервисов: инструменты собираются со всех, вызов уходит в нужный клиент."""
+    class CurrencyClient:
+        def __init__(self):
+            self.calls = []
+
+        def list_tools(self):
+            return [
+                {"name": "get_rate", "description": "rate",
+                 "inputSchema": {"type": "object", "properties": {}, "required": []}},
+                {"name": "get_summary", "description": "summary",
+                 "inputSchema": {"type": "object",
+                                 "properties": {"date": {"type": "string"}},
+                                 "required": ["date"]}},
+            ]
+
+        def call_tool(self, name, arguments):
+            self.calls.append({"name": name, "arguments": arguments})
+            return {"ok": True, "text": '{"rate":1.3}'}
+
+    class CurrencyToolProvider(MockProvider):
+        def __init__(self):
+            super().__init__()
+            self.rounds = 0
+
+        def complete(self, messages, request, task, user_text, tools=None):
+            if tools and self.rounds == 0:
+                self.rounds += 1
+                return {
+                    "id": "mock-tool",
+                    "choices": [{"message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [{
+                            "id": "call_cur",
+                            "type": "function",
+                            "function": {"name": "get_rate", "arguments": json.dumps({})},
+                        }],
+                    }}],
+                }
+            self.rounds += 1
+            return {"id": "mock-final", "choices": [{"message": {
+                "role": "assistant", "content": "Курс 1.3",
+            }}]}
+
+    fortune = FakeMcpClient()
+    currency = CurrencyClient()
+    fd, path = tempfile.mkstemp(prefix="multi_", suffix=".db")
+    os.close(fd)
+    app = create_app(CurrencyToolProvider(), HistoryStorage(path), mcp_clients=[fortune, currency])
+    try:
+        resp = _post(app, "какой курс евро?")
+        assert resp.status_code == 200
+        r = resp.json()
+        assert r["tool_calls"][0]["name"] == "get_rate"
+        assert currency.calls[0]["name"] == "get_rate"
+        assert fortune.calls == []  # инструмент гадания не вызывался
+    finally:
+        os.remove(path)

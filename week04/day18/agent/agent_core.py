@@ -506,13 +506,25 @@ def _run_task_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
 # ------------------------------------------------------------
 # Инструменты (MCP) — нативный function calling DeepSeek
 # ------------------------------------------------------------
-def _tools_enabled(request: AgentRequest, mcp_client) -> bool:
-    """Инструменты активны: есть клиент, включены запросом и модель поддерживает tools."""
-    if mcp_client is None:
+def _tools_enabled(request: AgentRequest, mcp_clients) -> bool:
+    """Инструменты активны: есть хотя бы один клиент, включены запросом и модель поддерживает tools."""
+    if not mcp_clients:
         return False
     if not getattr(request, "enable_tools", False):
         return False
     return (getattr(request, "model", "") or "").strip() in TOOL_CAPABLE_MODELS
+
+
+def _normalize_mcp_clients(mcp_client, mcp_clients) -> List:
+    """Приводит один/несколько MCP-клиентов к дедуплицированному списку."""
+    clients = list(mcp_clients or [])
+    if mcp_client is not None:
+        clients.append(mcp_client)
+    seen: List = []
+    for c in clients:
+        if c is not None and c not in seen:
+            seen.append(c)
+    return seen
 
 
 def _deepseek_tools(mcp_tools: List[dict]) -> List[dict]:
@@ -547,7 +559,7 @@ def _deepseek_tools(mcp_tools: List[dict]) -> List[dict]:
 
 
 def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: List[dict],
-                   mcp_client, user_text: str):
+                   mcp_clients, user_text: str):
     """Один ход чата с инструментами (двухшаговый function calling).
 
     Раунд 1 — модель получает список инструментов и может вернуть tool_calls;
@@ -560,11 +572,22 @@ def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
     tool_calls_info: List[dict] = []
     data: dict = {}
 
-    try:
-        mcp_tools = mcp_client.list_tools()
-    except Exception as e:
-        logger.warning("Не удалось получить список инструментов MCP: %s", e)
-        mcp_tools = []
+    # Собираем инструменты со всех MCP-клиентов и маппинг имя -> клиент.
+    mcp_tools: List[dict] = []
+    tool_client: dict = {}
+    for client in (mcp_clients or []):
+        try:
+            client_tools = client.list_tools()
+        except Exception as e:
+            logger.warning("Не удалось получить список инструментов MCP: %s", e)
+            continue
+        for t in (client_tools or []):
+            if not isinstance(t, dict):
+                continue
+            name = (t.get("name") or "").strip()
+            if name and name not in tool_client:
+                tool_client[name] = client
+                mcp_tools.append(t)
     tools = _deepseek_tools(mcp_tools)
 
     if not tools:
@@ -595,20 +618,26 @@ def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: Lis
         if not isinstance(arguments, dict):
             arguments = {}
 
-        try:
-            res = mcp_client.call_tool(name, arguments)
-            if isinstance(res, dict):
-                text = res.get("text", "")
-                ok = bool(res.get("ok", False))
-                error = res.get("error", "")
-            else:
-                text = str(res)
-                ok = False
-                error = ""
-        except Exception as e:
-            text = f"Ошибка вызова инструмента: {e}"
+        client = tool_client.get(name)
+        if client is None:
+            text = f"Инструмент '{name}' недоступен."
             ok = False
-            error = str(e)
+            error = "нет клиента для инструмента"
+        else:
+            try:
+                res = client.call_tool(name, arguments)
+                if isinstance(res, dict):
+                    text = res.get("text", "")
+                    ok = bool(res.get("ok", False))
+                    error = res.get("error", "")
+                else:
+                    text = str(res)
+                    ok = False
+                    error = ""
+            except Exception as e:
+                text = f"Ошибка вызова инструмента: {e}"
+                ok = False
+                error = str(e)
 
         messages.append({
             "role": "tool",
@@ -863,14 +892,17 @@ def _resolve_task(store: HistoryStorage, session_id: str, task_id: Optional[str]
 # Фабрика FastAPI-приложения
 # ------------------------------------------------------------
 def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
-               mcp_client=None) -> FastAPI:
+               mcp_client=None, mcp_clients=None) -> FastAPI:
     """Собирает FastAPI-приложение со всеми эндпоинтами на едином пайплайне.
 
-    provider   — реальный (DeepSeek) или детерминированный (Mock) провайдер;
-    store      — хранилище (по умолчанию глобальный синглтон; в тестах — отдельный);
-    mcp_client — клиент MCP-инструментов (list_tools/call_tool); None = без инструментов.
+    provider    — реальный (DeepSeek) или детерминированный (Mock) провайдер;
+    store       — хранилище (по умолчанию глобальный синглтон; в тестах — отдельный);
+    mcp_client  — один клиент MCP-инструментов (list_tools/call_tool);
+    mcp_clients — список клиентов MCP-инструментов (если сервисов несколько);
+                  None/пусто = без инструментов.
     """
     store = store or default_storage
+    clients = _normalize_mcp_clients(mcp_client, mcp_clients)
 
     app = FastAPI(title="AI Agent Service", description="Обработка запросов к DeepSeek")
     app.add_middleware(
@@ -1043,7 +1075,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             context_tokens = estimate_messages_tokens(request_messages)
 
             # 5. Генерация + переход конечного автомата.
-            tools_active = _tools_enabled(request, mcp_client)
+            tools_active = _tools_enabled(request, clients)
             tool_calls_info: List[dict] = []
             data: dict = {}
             if refused:
@@ -1066,7 +1098,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             else:
                 if tools_active:
                     content, tool_calls_info, data = _run_tool_turn(
-                        provider, request, request_messages, mcp_client, user_text
+                        provider, request, request_messages, clients, user_text
                     )
                 else:
                     data = provider.complete(request_messages, request, None, user_text)
