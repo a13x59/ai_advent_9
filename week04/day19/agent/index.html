@@ -1217,6 +1217,25 @@
             margin-bottom: 6px;
         }
 
+        .tool-step {
+            color: #b8a7ff;
+            font-weight: 700;
+        }
+
+        .tool-args {
+            color: #9aa7bd;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .tool-result {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
         /* Быстрые действия для демо MCP-инструментов */
         .quick-tools {
             display: flex;
@@ -1377,7 +1396,12 @@
 
             <label class="checkbox-row">
                 <input type="checkbox" id="enable_tools" checked>
-                🧰 MCP-инструменты (гадание + валюты)
+                🧰 MCP-инструменты (гадание + валюты + пайплайн)
+            </label>
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="pipeline">
+                🔗 Пайплайн (search → summarize → save_to_file)
             </label>
 
             <div class="branch-controls" id="branchControls">
@@ -1429,6 +1453,7 @@
                 <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
                 <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
                 <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
+                <button class="tool-btn" id="pipelineBtn" title="Найти информацию и сохранить сводку в файл">🔗 Пайплайн</button>
             </div>
 
             <div class="message-input">
@@ -1639,9 +1664,11 @@
     const maxTokensEl = document.getElementById('max_tokens');
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
+    const pipelineEl = document.getElementById('pipeline');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
     const rateBtn = document.getElementById('rateBtn');
+    const pipelineBtn = document.getElementById('pipelineBtn');
     const sendBtn = document.getElementById('sendBtn');
     const resetBtn = document.getElementById('resetBtn');
     const chatMessages = document.getElementById('chatMessages');
@@ -1801,19 +1828,36 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Показываем вызовы MCP-инструментов отдельными бейджами (не входят в history).
+    // Показываем цепочку вызовов MCP-инструментов отдельными бейджами (не входят в history).
     function renderToolCalls(calls) {
         if (!calls || !calls.length) return;
-        calls.forEach(c => {
+
+        // Заголовок пайплайна (только когда вызовов больше одного).
+        if (calls.length > 1) {
+            const chainDiv = document.createElement('div');
+            chainDiv.className = 'message assistant';
+            chainDiv.innerHTML = `
+        <div class="avatar">🔗</div>
+        <div class="bubble">
+          <div class="tool-chip">Пайплайн: ${calls.map(c => escapeHtml(c.name)).join(' → ')}</div>
+        </div>
+      `;
+            chatMessages.appendChild(chainDiv);
+        }
+
+        calls.forEach((c, i) => {
             const div = document.createElement('div');
             div.className = 'message assistant';
             const status = c.ok ? '✅' : '⚠️';
             const text = c.result != null ? c.result : (c.error || '');
+            const args = c.arguments ? JSON.stringify(c.arguments) : '';
+            const step = calls.length > 1 ? `<span class="tool-step">шаг ${i + 1}</span> ` : '';
             div.innerHTML = `
         <div class="avatar">🔮</div>
         <div class="bubble">
-          <div class="tool-chip">${status} инструмент: ${escapeHtml(c.name)}</div>
-          ${escapeHtml(text)}
+          <div class="tool-chip">${step}${status} инструмент: ${escapeHtml(c.name)}</div>
+          ${args ? `<div class="tool-args">вход: ${escapeHtml(args)}</div>` : ''}
+          ${text ? `<div class="tool-result">${escapeHtml(text)}</div>` : ''}
         </div>
       `;
             chatMessages.appendChild(div);
@@ -1826,6 +1870,7 @@
         const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
         if (q === null || !q.trim()) return;
         enableToolsEl.checked = true;
+        pipelineEl.checked = false;
         messageEl.value = `Погадай на шаре: ${q.trim()}`;
         messageEl.focus();
         sendRequest();
@@ -1835,6 +1880,7 @@
         const q = prompt('Вопрос для гадания по книге:', 'Что ждет моего друга Колю?');
         if (q === null || !q.trim()) return;
         enableToolsEl.checked = true;
+        pipelineEl.checked = false;
         messageEl.value = `Погадай по книге («Алиса в Стране чудес»): ${q.trim()}`;
         messageEl.focus();
         sendRequest();
@@ -1842,7 +1888,18 @@
 
     function quickRate() {
         enableToolsEl.checked = true;
+        pipelineEl.checked = false;
         messageEl.value = 'Выведи текущий курс EUR/USD';
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickPipeline() {
+        enableToolsEl.checked = true;
+        pipelineEl.checked = true;
+        const topic = prompt('Тема для поиска и сводки:', 'DeepSeek');
+        if (topic === null || !topic.trim()) return;
+        messageEl.value = `Найди информацию про ${topic.trim()} и сохрани краткую сводку в файл summary.txt`;
         messageEl.focus();
         sendRequest();
     }
@@ -2613,6 +2670,7 @@
             max_tokens: maxTokens,
             auto_suggest_memory: autoSuggestEl.checked,
             enable_tools: enableToolsEl.checked,
+            pipeline: pipelineEl.checked,
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
@@ -2813,6 +2871,7 @@
     ballBtn.addEventListener('click', quickBall);
     bookBtn.addEventListener('click', quickBook);
     rateBtn.addEventListener('click', quickRate);
+    pipelineBtn.addEventListener('click', quickPipeline);
     createBranchBtn.addEventListener('click', createBranches);
     branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
     strategyEl.addEventListener('change', updateBranchControlsVisibility);

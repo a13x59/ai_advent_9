@@ -17,6 +17,7 @@ import requests
 
 MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8888")
 CURRENCY_MCP_BASE_URL = os.environ.get("CURRENCY_MCP_BASE_URL", "http://localhost:8889")
+PIPELINE_MCP_BASE_URL = os.environ.get("PIPELINE_MCP_BASE_URL", "http://localhost:8890")
 MCP_TIMEOUT = float(os.environ.get("MCP_TIMEOUT", "10"))
 
 # Версия протокола, которую клиент заявляет при initialize.
@@ -192,3 +193,12 @@ class CurrencyMcpClient(McpClient):
 
     def __init__(self, base_url: str = None, timeout: float = None):
         super().__init__(base_url=base_url or CURRENCY_MCP_BASE_URL, timeout=timeout)
+
+
+class PipelineMcpClient(McpClient):
+    """Клиент инструментов пайплайна (search, summarize, save_to_file)."""
+
+    CLIENT_NAME = "agent-pipeline-client"
+
+    def __init__(self, base_url: str = None, timeout: float = None):
+        super().__init__(base_url=base_url or PIPELINE_MCP_BASE_URL, timeout=timeout)
