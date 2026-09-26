@@ -18,6 +18,8 @@ import requests
 MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8888")
 CURRENCY_MCP_BASE_URL = os.environ.get("CURRENCY_MCP_BASE_URL", "http://localhost:8889")
 PIPELINE_MCP_BASE_URL = os.environ.get("PIPELINE_MCP_BASE_URL", "http://localhost:8890")
+# Пайплайн-инструменты (особенно search через async Yandex v2) могут выполняться дольше.
+PIPELINE_MCP_TIMEOUT = float(os.environ.get("PIPELINE_MCP_TIMEOUT", "90"))
 MCP_TIMEOUT = float(os.environ.get("MCP_TIMEOUT", "10"))
 
 # Версия протокола, которую клиент заявляет при initialize.
@@ -109,7 +111,19 @@ class McpClient:
         payload = {"jsonrpc": "2.0", "id": self._next_id(), "method": method}
         if params is not None:
             payload["params"] = params
-        data = self._post(payload)
+        try:
+            data = self._post(payload)
+        except McpUnavailable as e:
+            # MCP-сервер мог перезапуститься: закэшированный session id протух, и
+            # сервер отвечает HTTP 404 «Session not found». Сбрасываем сессию,
+            # инициализируемся заново и повторяем запрос ОДИН раз.
+            if self._session_id is not None and "404" in str(e):
+                self._session_id = None
+                self._tools = None
+                self._initialize()
+                data = self._post(payload)
+            else:
+                raise
         if isinstance(data, dict) and data.get("jsonrpc") == "2.0":
             if "error" in data:
                 err = data["error"] or {}
@@ -196,9 +210,16 @@ class CurrencyMcpClient(McpClient):
 
 
 class PipelineMcpClient(McpClient):
-    """Клиент инструментов пайплайна (search, summarize, save_to_file)."""
+    """Клиент инструментов пайплайна (search, summarize, save_to_file).
+
+    Таймаут по умолчанию больше, чем у остальных клиентов: search ходит через
+    асинхронный Yandex Search API v2 (submit → poll), что занимает секунды.
+    """
 
     CLIENT_NAME = "agent-pipeline-client"
 
     def __init__(self, base_url: str = None, timeout: float = None):
-        super().__init__(base_url=base_url or PIPELINE_MCP_BASE_URL, timeout=timeout)
+        super().__init__(
+            base_url=base_url or PIPELINE_MCP_BASE_URL,
+            timeout=timeout if timeout is not None else PIPELINE_MCP_TIMEOUT,
+        )

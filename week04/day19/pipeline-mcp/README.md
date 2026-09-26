@@ -15,14 +15,16 @@ processes it, and the third saves the result to a file.
 ## Tools
 
 ### 1. `search` — fetch data
-Web search via the **Yandex Search API**. Returns the top results as:
+Web search via the **Yandex Search API v2** (asynchronous: `searchAsync` → poll → Base64-XML).
+Returns the top results as:
 
 ```json
 {"query":"deepseek","count":3,"results":[{"title":"...","url":"...","passage":"..."}]}
 ```
 
 - Input: `query` (string, required), `limit` (integer, optional).
-- Requires `YANDEX_API_KEY` (and `YANDEX_FOLDER_ID` for the Yandex Cloud folder).
+- Requires `YANDEX_API_KEY` and `YANDEX_FOLDER_ID`, and the service account needs the
+  `search-api.webSearch.user` role for the folder.
 
 ### 2. `summarize` — process data
 LLM summarization via the **DeepSeek** chat-completions API. Returns:
@@ -49,9 +51,15 @@ Writes text content to a file under the output directory and returns:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `8890` | HTTP/SSE port (distinct from fortune 8888 and currency 8889) |
-| `YANDEX_SEARCH_URL` | `https://searchapi.yandex.ru/v1/web/search` | Yandex Search API base URL |
-| `YANDEX_API_KEY` | `` | Yandex Search API key (`Authorization: Api-Key <key>`) |
-| `YANDEX_FOLDER_ID` | `` | Yandex Cloud folder id (`folderid` query param) |
+| `YANDEX_SEARCH_URL` | `https://searchapi.api.cloud.yandex.net/v2/web/searchAsync` | Yandex Search API v2 submit URL |
+| `YANDEX_OPERATION_URL` | `https://operation.api.cloud.yandex.net/operations` | Cloud Operation endpoint for polling |
+| `YANDEX_API_KEY` | `` | service-account API key (`Authorization: Api-Key <key>`) |
+| `YANDEX_FOLDER_ID` | `` | Yandex Cloud folder id |
+| `YANDEX_SEARCH_TYPE` | `SEARCH_TYPE_RU` | `SEARCH_TYPE_RU` / `SEARCH_TYPE_TR` / `SEARCH_TYPE_COM` |
+| `YANDEX_FAMILY_MODE` | `FAMILY_MODE_MODERATE` | adult-content filter mode |
+| `YANDEX_L10N` | `LOCALIZATION_RU` | response localization |
+| `YANDEX_POLL_INTERVAL_MS` | `1000` | delay between async operation polls |
+| `YANDEX_POLL_TIMEOUT_MS` | `60000` | max wait for the async search result |
 | `SEARCH_MAX_RESULTS` | `5` | default `limit` for `search` |
 | `DEEPSEEK_API_URL` | `https://api.deepseek.com/v1/chat/completions` | DeepSeek completions endpoint |
 | `DEEPSEEK_API_KEY` | `` | DeepSeek API key |

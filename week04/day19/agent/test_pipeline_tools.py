@@ -9,10 +9,13 @@ import json
 import os
 import tempfile
 
+import pytest
 from fastapi.testclient import TestClient
 
+import mcp_client
 from agent_core import create_app, _deepseek_tools, MAX_TOOL_CYCLES
 from mock_agent import MockProvider
+from mcp_client import McpUnavailable
 from storage import HistoryStorage
 
 SEARCH_RESULT = '{"query":"deepseek","count":1,"results":[{"title":"DeepSeek","url":"https://deepseek.com","passage":"DeepSeek is an AI model."}]}'
@@ -214,3 +217,100 @@ def test_single_call_still_uses_single_turn():
         assert r["response"] == "Нашёл DeepSeek."
     finally:
         os.remove(path)
+
+
+# ----------------------------------------------------------------------
+# Восстановление клиента после перезапуска MCP-сервера (протухшая сессия).
+# ----------------------------------------------------------------------
+class FakeResp:
+    def __init__(self, status_code=200, json_data=None, headers=None, text=""):
+        self.status_code = status_code
+        self._json_data = json_data
+        self.headers = headers or {}
+        self.text = text
+
+    def json(self):
+        if self._json_data is None:
+            raise ValueError("no json")
+        return self._json_data
+
+
+class RestartingFakePost:
+    """Транспорт, который эмулирует перезапуск MCP-сервера: после restart()
+    ранее выданные session id перестают работать (HTTP 404 «Session not found»)."""
+
+    def __init__(self):
+        self.active_sessions = set()
+        self.calls = []
+        self._session_counter = 0
+
+    def restart(self):
+        self.active_sessions.clear()
+
+    def __call__(self, url, json=None, headers=None, timeout=None):
+        self.calls.append({"json": json, "headers": headers})
+        method = (json or {}).get("method")
+        sid = (headers or {}).get("Mcp-Session-Id")
+        req_id = (json or {}).get("id")
+
+        # Уведомления (нет id) — 202 без тела.
+        if "id" not in (json or {}):
+            return FakeResp(status_code=202, json_data=None, headers={}, text="")
+
+        # initialize всегда выдаёт новую валидную сессию.
+        if method == "initialize":
+            self._session_counter += 1
+            new_sid = f"sess-{self._session_counter}"
+            self.active_sessions.add(new_sid)
+            return FakeResp(
+                status_code=200,
+                json_data={"jsonrpc": "2.0", "id": req_id, "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "pipeline-mcp", "version": "1.0.0"},
+                }},
+                headers={"Mcp-Session-Id": new_sid},
+                text="",
+            )
+
+        # Остальные запросы требуют валидной сессии.
+        if sid not in self.active_sessions:
+            return FakeResp(
+                status_code=404,
+                json_data={"jsonrpc": "2.0", "id": req_id,
+                           "error": {"code": -32000, "message": "Session not found"}},
+                headers={},
+                text="",
+            )
+
+        if method == "tools/list":
+            return FakeResp(status_code=200, json_data={"jsonrpc": "2.0", "id": req_id, "result": {
+                "tools": [{"name": "save_to_file", "description": "d",
+                           "inputSchema": {"type": "object", "properties": {}, "required": []}}],
+            }}, headers={}, text="")
+        if method == "tools/call":
+            return FakeResp(status_code=200, json_data={"jsonrpc": "2.0", "id": req_id, "result": {
+                "content": [{"type": "text", "text": "ok"}],
+            }}, headers={}, text="")
+        return FakeResp(status_code=200, json_data={"jsonrpc": "2.0", "id": req_id, "result": {}}, headers={}, text="")
+
+
+def test_client_recovers_from_stale_session(monkeypatch):
+    fake = RestartingFakePost()
+    monkeypatch.setattr(mcp_client.requests, "post", fake)
+
+    client = mcp_client.PipelineMcpClient(base_url="http://localhost:9999")
+    client.list_tools()
+    assert client._session_id == "sess-1"
+
+    # Имитируем перезапуск сервера: старая сессия больше не валидна.
+    fake.restart()
+
+    # tools/call со старой сессией → 404 → клиент должен переинициализироваться и повторить.
+    res = client.call_tool("save_to_file", {"filename": "a.txt", "content": "x"})
+    assert res == {"ok": True, "text": "ok"}
+    assert client._session_id == "sess-2"
+
+    # initialize вызывался дважды: до рестарта и при восстановлении.
+    init_count = sum(1 for c in fake.calls if (c["json"] or {}).get("method") == "initialize")
+    assert init_count == 2
