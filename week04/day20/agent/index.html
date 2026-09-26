@@ -1,0 +1,2992 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent — DeepSeek</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(145deg, #0b0e14 0%, #1a1f2a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .app-container {
+            max-width: 1280px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 48px;
+            padding: 30px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #f0f3f8;
+            letter-spacing: -0.5px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 .badge {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            padding: 4px 14px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .info-icon {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #718096;
+            font-size: 10px;
+            font-style: normal;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 3px;
+            flex-shrink: 0;
+            vertical-align: middle;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .info-icon:hover,
+        .info-icon:focus {
+            color: #fff;
+            background: rgba(108, 92, 231, 0.5);
+            border-color: #6c5ce7;
+            outline: none;
+        }
+
+        .info-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            max-width: 70vw;
+            background: #1a1f2a;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 10px 12px;
+            color: #cbd5e0;
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.5;
+            letter-spacing: 0;
+            white-space: normal;
+            text-align: left;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+            display: none;
+            z-index: 30;
+        }
+
+        .info-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: #1a1f2a;
+        }
+
+        .info-icon:hover .info-tooltip,
+        .info-icon:focus .info-tooltip {
+            display: block;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 28px;
+        }
+
+        /* Левая панель — параметры */
+        .params-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 24px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            align-self: start;
+        }
+
+        .params-panel label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #a0aec0;
+            margin-bottom: 6px;
+            letter-spacing: 0.3px;
+        }
+
+        .params-panel input, .params-panel textarea, .params-panel select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            color: #e2e8f0;
+            font-size: 15px;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .params-panel input:focus, .params-panel textarea:focus, .params-panel select:focus {
+            outline: none;
+            border-color: #6c5ce7;
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+        }
+
+        .params-panel .row2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        /* Свёрнутая по умолчанию группа параметров модели */
+        .params-group {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .params-group summary {
+            cursor: pointer;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e0;
+            user-select: none;
+            list-style: none;
+        }
+
+        .params-group summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .params-group summary::before {
+            content: '▸';
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.2s;
+            color: #6c5ce7;
+        }
+
+        .params-group[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .params-group .group-body {
+            padding: 0 16px 16px;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            color: #cbd5e0;
+            font-size: 13px;
+        }
+
+        .checkbox-row input {
+            width: auto;
+            margin: 0;
+            accent-color: #6c5ce7;
+        }
+
+        .btn-reset {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 40px;
+            color: #a0aec0;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            margin-top: 4px;
+        }
+
+        .btn-reset:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        /* Правая панель — память, чат, ввод и статистика */
+        .chat-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 24px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 140px);
+            min-height: 560px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 6px;
+            margin-bottom: 12px;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #6c5ce7;
+            border-radius: 10px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 18px;
+            align-items: flex-end; /* аватар прижат к нижнему краю сообщения */
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .message.user .avatar {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+        }
+
+        .message.assistant .avatar {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+        }
+
+        .message .bubble {
+            background: rgba(255, 255, 255, 0.07);
+            padding: 12px 18px;
+            border-radius: 18px;
+            max-width: 80%;
+            color: #e2e8f0;
+            font-size: 15px;
+            line-height: 1.6;
+            word-break: break-word;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .message.user .bubble {
+            background: rgba(108, 92, 231, 0.25);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Ввод сообщения — внизу блока чата */
+        .message-input {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            margin-bottom: 14px;
+        }
+
+        .message-input textarea {
+            flex: 1;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            color: #e2e8f0;
+            font-size: 15px;
+            resize: vertical;
+            min-height: 48px;
+            max-height: 160px;
+            transition: all 0.2s;
+        }
+
+        .message-input textarea:focus {
+            outline: none;
+            border-color: #6c5ce7;
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+        }
+
+        .btn-send {
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-size: 17px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.2s;
+            box-shadow: 0 8px 24px rgba(108, 92, 231, 0.3);
+            white-space: nowrap;
+        }
+
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(108, 92, 231, 0.4);
+        }
+
+        .btn-send:active {
+            transform: scale(0.98);
+        }
+
+        /* Статистика — внизу, выровнена по нижнему краю */
+        .stats {
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 16px;
+            padding: 12px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .stats-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .stats-group-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #6c5ce7;
+            font-weight: 600;
+            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stats-row.single {
+            grid-template-columns: 1fr;
+        }
+
+        .stats .stat-item {
+            text-align: center;
+        }
+
+        .stats .stat-item .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+        }
+
+        .stats .stat-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f0f3f8;
+            margin-top: 2px;
+        }
+
+        .stats .stat-item .value.positive {
+            color: #81ecec;
+        }
+
+        .stats .stat-item .value.negative {
+            color: #f56565;
+        }
+
+        .stats .stat-item .value.zero {
+            color: #a0aec0;
+        }
+
+        .stats .stat-item .value small {
+            font-size: 12px;
+            font-weight: 400;
+            color: #a0aec0;
+        }
+
+        /* Панель памяти (три слоя) */
+        .memory-panel {
+            border: 1px solid rgba(162, 155, 254, 0.3);
+            border-radius: 14px;
+            background: rgba(108, 92, 231, 0.08);
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .memory-panel summary {
+            cursor: pointer;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e9e5ff;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .memory-panel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .memory-panel summary::before {
+            content: '▸';
+            transition: transform 0.2s;
+            color: #a29bfe;
+        }
+
+        .memory-panel[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .memory-badge {
+            font-weight: 400;
+            color: #a0aec0;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        .memory-body {
+            padding: 0 14px 14px;
+        }
+
+        .memory-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1.2fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .memory-col {
+            min-width: 0;
+        }
+
+        .memory-col-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #a29bfe;
+            font-weight: 600;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .memory-list {
+            list-style: none;
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+            color: #cbd5e0;
+        }
+
+        .mem-item {
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.22);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            line-height: 1.45;
+        }
+
+        .mem-item b {
+            color: #e9e5ff;
+        }
+
+        .mem-item .mem-kind {
+            display: inline-block;
+            background: rgba(108, 92, 231, 0.3);
+            border-radius: 6px;
+            padding: 0 6px;
+            font-size: 10px;
+            color: #c4bfff;
+            margin-right: 4px;
+        }
+
+        .mem-item .mem-state {
+            display: inline-block;
+            border-radius: 6px;
+            padding: 0 6px;
+            font-size: 10px;
+            margin-left: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #81ecec;
+        }
+
+        .mem-item .mem-actions {
+            margin-top: 4px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .mem-btn {
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            background: rgba(108, 92, 231, 0.2);
+            color: #d6d2ff;
+            border-radius: 8px;
+            font-size: 11px;
+            padding: 3px 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .mem-btn:hover {
+            background: rgba(108, 92, 231, 0.45);
+        }
+
+        .mem-btn.del {
+            color: #f6a5a5;
+            border-color: rgba(245, 101, 101, 0.4);
+            background: rgba(245, 101, 101, 0.15);
+        }
+
+        .mem-btn.del:hover {
+            background: rgba(245, 101, 101, 0.35);
+        }
+
+        .mem-empty {
+            color: #718096;
+            font-style: italic;
+        }
+
+        /* Форма явного сохранения в память */
+        .memory-save {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .memory-save input, .memory-save select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .memory-save input:focus, .memory-save select:focus {
+            outline: none;
+            border-color: #6c5ce7;
+        }
+
+        .memory-save .mem-key {
+            flex: 1 1 110px;
+        }
+
+        .memory-save .mem-value {
+            flex: 2 1 160px;
+        }
+
+        .btn-mem-save, .btn-suggest {
+            padding: 9px 14px;
+            background: rgba(108, 92, 231, 0.35);
+            border: 1px solid rgba(162, 155, 254, 0.5);
+            border-radius: 10px;
+            color: #e9e5ff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .btn-mem-save:hover, .btn-suggest:hover {
+            background: rgba(108, 92, 231, 0.55);
+        }
+
+        .btn-suggest {
+            margin-bottom: 8px;
+            background: rgba(0, 184, 148, 0.2);
+            border-color: rgba(0, 206, 201, 0.4);
+            color: #c8f7f5;
+        }
+
+        .btn-suggest:hover {
+            background: rgba(0, 184, 148, 0.4);
+        }
+
+        /* Форма профиля пользователя (персонализация) */
+        .profile-form {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .profile-form input, .profile-form textarea, .profile-form select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            width: 100%;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .profile-form input:focus, .profile-form textarea:focus, .profile-form select:focus {
+            outline: none;
+            border-color: #00b894;
+        }
+
+        .profile-form .profile-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .profile-form .profile-row select {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .profile-form .profile-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .profile-field-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            font-weight: 600;
+        }
+
+        /* Панель-инструментов: кнопки открытия модальных окон */
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .tool-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(108, 92, 231, 0.15);
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 14px;
+            color: #e9e5ff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, transform 0.1s;
+        }
+
+        .tool-btn:hover {
+            background: rgba(108, 92, 231, 0.3);
+            border-color: #a29bfe;
+        }
+
+        .tool-btn:active {
+            transform: scale(0.98);
+        }
+
+        .tool-btn .memory-badge {
+            margin-left: 0;
+            color: #a0aec0;
+        }
+
+        /* Модальные окна */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 100;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1f2a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 22px;
+            width: 100%;
+            max-width: 720px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+            animation: modalIn 0.2s ease;
+        }
+
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f0f3f8;
+            letter-spacing: -0.3px;
+        }
+
+        .modal-close {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #a0aec0;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 1;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        /* Очередь предложений памяти */
+        .pending {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .pending-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #00cec9;
+            font-weight: 600;
+        }
+
+        .pending-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 184, 148, 0.08);
+            border: 1px solid rgba(0, 206, 201, 0.25);
+            border-radius: 10px;
+            font-size: 12px;
+            color: #cbd5e0;
+        }
+
+        .pending-item .p-layer {
+            text-transform: uppercase;
+            font-size: 10px;
+            font-weight: 700;
+            color: #00cec9;
+            letter-spacing: 0.5px;
+            flex-shrink: 0;
+        }
+
+        .pending-item .p-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .pending-item b {
+            color: #e9e5ff;
+        }
+
+        /* Сводка по контексту */
+        .context-summary {
+            display: none;
+            background: linear-gradient(135deg, rgba(108, 92, 231, 0.18), rgba(162, 155, 254, 0.10));
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 14px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            color: #cbd5e0;
+            font-size: 13px;
+            line-height: 1.5;
+            flex-shrink: 0;
+        }
+
+        .context-summary .summary-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #e9e5ff;
+            margin-bottom: 4px;
+        }
+
+        .context-summary .summary-head .icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .context-summary .meta {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .context-summary .meta b {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        .context-summary.flash {
+            animation: contextFlash 1s ease;
+        }
+
+        @keyframes contextFlash {
+            0% {
+                box-shadow: 0 0 0 0 rgba(162, 155, 254, 0.7);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 0 0 8px rgba(162, 155, 254, 0);
+                transform: scale(1.02);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(162, 155, 254, 0);
+                transform: scale(1);
+            }
+        }
+
+        /* Панель задачи (конечный автомат) */
+        .task-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: rgba(0, 184, 148, 0.08);
+            border: 1px solid rgba(0, 206, 201, 0.3);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        .task-stepper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .task-step {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #718096;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .task-step.current {
+            background: rgba(0, 184, 148, 0.22);
+            border-color: #00cec9;
+            color: #81ecec;
+        }
+
+        .task-step.done {
+            background: rgba(0, 184, 148, 0.15);
+            border-color: rgba(0, 206, 201, 0.5);
+            color: #55efc4;
+        }
+
+        .task-step.paused {
+            background: rgba(253, 203, 110, 0.18);
+            border-color: #fdcb6e;
+            color: #ffeaa7;
+        }
+
+        .task-arrow {
+            color: #4a5568;
+            font-size: 12px;
+        }
+
+        .task-meta-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .task-meta {
+            color: #cbd5e0;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .task-meta b {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .task-buttons {
+            display: inline-flex;
+            gap: 6px;
+        }
+
+        .task-btn {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(108, 92, 231, 0.15);
+            border: 1px solid rgba(162, 155, 254, 0.35);
+            border-radius: 10px;
+            color: #e9e5ff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .task-btn:hover {
+            background: rgba(108, 92, 231, 0.3);
+            border-color: #a29bfe;
+        }
+
+        .task-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* Список задач в модалке */
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            font-size: 13px;
+            color: #cbd5e0;
+        }
+
+        .task-item.selected {
+            border-color: #00cec9;
+            background: rgba(0, 184, 148, 0.08);
+        }
+
+        .task-item .t-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .task-item .t-title {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .task-item .t-sub {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .task-status-chip {
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            flex-shrink: 0;
+        }
+
+        .task-status-chip.active {
+            background: rgba(0, 184, 148, 0.2);
+            color: #55efc4;
+        }
+
+        .task-status-chip.paused {
+            background: rgba(253, 203, 110, 0.2);
+            color: #ffeaa7;
+        }
+
+        .task-status-chip.done {
+            background: rgba(255, 255, 255, 0.1);
+            color: #a0aec0;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Инварианты (жёсткие ограничения агента) */
+        .inv-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            margin-bottom: 14px;
+        }
+
+        .invariant-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            font-size: 13px;
+            color: #cbd5e0;
+        }
+
+        .invariant-item.off {
+            opacity: 0.5;
+        }
+
+        .invariant-item .t-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .invariant-item .t-title {
+            color: #e9e5ff;
+            font-weight: 600;
+        }
+
+        .invariant-item .t-sub {
+            color: #718096;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .inv-form {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .inv-form input, .inv-form textarea, .inv-form select {
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 13px;
+            width: 100%;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .inv-form input:focus, .inv-form textarea:focus, .inv-form select:focus {
+            outline: none;
+            border-color: #fdcb6e;
+        }
+
+        .inv-form .inv-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .inv-form .inv-row > div {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .inv-form .inv-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .inv-field-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #718096;
+            font-weight: 600;
+        }
+
+        .refusal-chip {
+            display: inline-block;
+            background: rgba(245, 101, 101, 0.2);
+            color: #ff7675;
+            border: 1px solid rgba(245, 101, 101, 0.4);
+            border-radius: 6px;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        /* Бейдж вызова MCP-инструмента */
+        .tool-chip {
+            display: inline-block;
+            background: rgba(108, 92, 231, 0.25);
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            border-radius: 6px;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #d6d2ff;
+            margin-bottom: 6px;
+        }
+
+        .tool-step {
+            color: #b8a7ff;
+            font-weight: 700;
+        }
+
+        .tool-args {
+            color: #9aa7bd;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .tool-result {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        /* Быстрые действия для демо MCP-инструментов */
+        .quick-tools {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        /* Управление ветками (стратегия branching) */
+        .branch-controls {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .branch-controls.visible {
+            display: flex;
+        }
+
+        .branch-controls .branch-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .branch-controls .branch-row select {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .btn-branch {
+            flex-shrink: 0;
+            padding: 10px 14px;
+            background: rgba(108, 92, 231, 0.25);
+            border: 1px solid rgba(162, 155, 254, 0.4);
+            border-radius: 12px;
+            color: #d6d2ff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .btn-branch:hover {
+            background: rgba(108, 92, 231, 0.4);
+            color: #fff;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 800px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .app-container {
+                padding: 16px;
+            }
+
+            .chat-panel {
+                height: auto;
+                min-height: 0;
+            }
+
+            .memory-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        select option {
+            background: #1a1f2a;
+        }
+
+        ::-webkit-input-placeholder {
+            color: #4a5568;
+        }
+
+        ::-moz-placeholder {
+            color: #4a5568;
+        }
+
+        :-ms-input-placeholder {
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h1>
+        🤖 AI Agent
+        <span class="badge">DeepSeek</span>
+        <span class="badge" style="background: linear-gradient(135deg,#00b894,#00cec9)">Memory Layers</span>
+    </h1>
+    <div class="main-grid">
+        <!-- Левая панель: настройки -->
+        <div class="params-panel">
+            <label for="model">Модель *</label>
+            <select id="model">
+                <option value="deepseek-chat">deepseek-chat</option>
+                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                <option value="deepseek-coder">deepseek-coder</option>
+            </select>
+
+            <!-- Группа параметров модели — свёрнута по умолчанию -->
+            <details class="params-group">
+                <summary>⚙ Параметры модели</summary>
+                <div class="group-body">
+                    <div class="row2">
+                        <div>
+                            <label for="temperature">Температура</label>
+                            <input type="number" id="temperature" value="1.0" step="0.1" min="0" max="2">
+                        </div>
+                        <div>
+                            <label for="top_p">top_p</label>
+                            <input type="number" id="top_p" value="1.0" step="0.05" min="0" max="1">
+                        </div>
+                        <div>
+                            <label for="top_k">top_k</label>
+                            <input type="number" id="top_k" value="0" step="1" min="0">
+                        </div>
+                        <div>
+                            <label for="max_tokens">max_tokens</label>
+                            <input type="number" id="max_tokens" value="4096" step="1" min="1" max="8192">
+                        </div>
+                    </div>
+                    <label for="stop">Стоп-последовательность (через запятую)</label>
+                    <input type="text" id="stop" placeholder="например: stop1, stop2">
+                </div>
+            </details>
+
+            <label for="strategy">Стратегия контекста</label>
+            <select id="strategy">
+                <option value="sliding_window">Sliding Window — окно последних N</option>
+                <option value="sticky_facts">Sticky Facts — факты + окно N</option>
+                <option value="branching">Branching — ветки диалога</option>
+            </select>
+
+            <label for="window_size">Размер окна N</label>
+            <input type="number" id="window_size" value="5" step="1" min="1">
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="auto_suggest">
+                Генерировать предложения памяти
+            </label>
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="enable_tools" checked>
+                🧰 MCP-инструменты (гадание + валюты + пайплайн)
+            </label>
+
+            <label class="checkbox-row">
+                <input type="checkbox" id="pipeline">
+                🔗 Пайплайн (search → summarize → save_to_file)
+            </label>
+
+            <div class="branch-controls" id="branchControls">
+                <div class="branch-row">
+                    <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
+                </div>
+                <div class="branch-row">
+                    <select id="branchSelect" title="Активная ветка"></select>
+                </div>
+            </div>
+
+            <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
+        </div>
+
+        <!-- Правая панель: чат + ввод + статистика -->
+        <div class="chat-panel">
+            <div class="toolbar">
+                <button class="tool-btn" id="profileOpenBtn">👤 Профиль
+                    <span class="memory-badge" id="profileBadge">не задан</span>
+                </button>
+                <button class="tool-btn" id="memoryOpenBtn">🧠 Память
+                    <span class="memory-badge" id="memoryBadge">рабочая 0 · долговременная 0</span>
+                </button>
+                <button class="tool-btn" id="taskOpenBtn">🎯 Задача
+                    <span class="memory-badge" id="taskBadge">нет</span>
+                </button>
+                <button class="tool-btn" id="invariantOpenBtn">🛡 Инварианты
+                    <span class="memory-badge" id="invariantBadge">0</span>
+                </button>
+            </div>
+
+            <div class="task-panel" id="taskPanel">
+                <div class="task-stepper" id="taskStepper"></div>
+                <div class="task-meta-row">
+                    <span class="task-meta" id="taskMeta">Задача не выбрана</span>
+                    <span class="task-buttons">
+                        <button class="task-btn" id="taskPauseBtn" title="Поставить на паузу">⏸</button>
+                        <button class="task-btn" id="taskResumeBtn" title="Продолжить">▶</button>
+                        <button class="task-btn" id="taskListBtn" title="Список задач">📋</button>
+                    </span>
+                </div>
+            </div>
+
+            <div class="context-summary" id="contextSummary"></div>
+
+            <div class="chat-messages" id="chatMessages"></div>
+
+            <div class="quick-tools" id="quickTools">
+                <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
+                <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
+                <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
+                <button class="tool-btn" id="pipelineBtn" title="Найти информацию и сохранить сводку в файл">🔗 Пайплайн</button>
+            </div>
+
+            <div class="message-input">
+                <textarea id="message" placeholder="Введите ваш запрос..." rows="2"></textarea>
+                <button class="btn-send" id="sendBtn">➤ Отправить</button>
+            </div>
+
+            <div class="stats" id="statsPanel">
+                <div class="stats-group">
+                    <div class="stats-group-title">Текущий запрос</div>
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="label">📤 Запрос
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всего, что отправлено модели (краткосрочная история + рабочая + долговременная память).</span></i>
+                            </div>
+                            <div class="value" id="statRequestTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">🤖 Ответ
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены, которые модель сгенерировала в ответе.</span></i>
+                            </div>
+                            <div class="value" id="statResponseTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">🔢 Всего
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Сумма токенов за этот запрос: вход + выход.</span></i>
+                            </div>
+                            <div class="value" id="statTotalTokens">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-group">
+                    <div class="stats-group-title">Всего</div>
+                    <div class="stats-row">
+                        <div class="stat-item">
+                            <div class="label">⏱ Время
+                                <i class="info-icon" tabindex="0">i<span
+                                        class="info-tooltip">Время обработки запроса.</span></i>
+                            </div>
+                            <div class="value" id="statDuration">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">📚 История
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Токены всей краткосрочной истории (активная ветка).</span></i>
+                            </div>
+                            <div class="value" id="statHistoryTokens">—</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="label">💲 Стоимость
+                                <i class="info-icon" tabindex="0">i<span class="info-tooltip">Оценка стоимости запроса, включая генерацию предложений памяти.</span></i>
+                            </div>
+                            <div class="value" id="statCost">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Профиль пользователя -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">👤 Профиль пользователя</div>
+            <button class="modal-close" data-close="profileModal" title="Закрыть">✕</button>
+        </div>
+        <div class="profile-form">
+            <div class="profile-row">
+                <select id="profileSelect" title="Активный профиль"></select>
+                <button class="mem-btn del" id="profileDeleteBtn" title="Удалить профиль">✕</button>
+            </div>
+            <label class="profile-field-label" for="profileName">Ключ (уникальный)</label>
+            <input id="profileName" placeholder="напр. ivan_dev">
+            <label class="profile-field-label" for="profileDisplayName">Имя</label>
+            <input id="profileDisplayName" placeholder="напр. Иван, разработчик">
+            <label class="profile-field-label" for="profileStyle">Стиль общения</label>
+            <textarea id="profileStyle" rows="2" placeholder="напр. кратко, дружелюбно, по делу"></textarea>
+            <label class="profile-field-label" for="profileFormat">Формат ответа</label>
+            <textarea id="profileFormat" rows="2" placeholder="напр. markdown со списками, без воды"></textarea>
+            <label class="profile-field-label" for="profileConstraints">Ограничения</label>
+            <textarea id="profileConstraints" rows="2" placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
+            <label class="profile-field-label" for="profileNotes">Дополнительно</label>
+            <textarea id="profileNotes" rows="2" placeholder="напр. отвечай на «ты»"></textarea>
+            <div class="profile-actions">
+                <button class="btn-mem-save" id="profileSaveBtn">💾 Сохранить профиль</button>
+                <button class="btn-suggest" id="profileNewBtn">➕ Новый</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Память -->
+<div class="modal-overlay" id="memoryModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🧠 Память</div>
+            <button class="modal-close" data-close="memoryModal" title="Закрыть">✕</button>
+        </div>
+        <div class="memory-grid">
+            <div class="memory-col">
+                <div class="memory-col-title">💬 Краткосрочная</div>
+                <div class="memory-list" id="memoryShort"></div>
+            </div>
+            <div class="memory-col">
+                <div class="memory-col-title">📌 Рабочая (задача)</div>
+                <div class="memory-list" id="memoryWorking"></div>
+            </div>
+            <div class="memory-col">
+                <div class="memory-col-title">🗄 Долговременная</div>
+                <div class="memory-list" id="memoryLongTerm"></div>
+            </div>
+        </div>
+        <div class="memory-save">
+            <input class="mem-key" id="memKey" placeholder="ключ (напр. цель)">
+            <input class="mem-value" id="memValue" placeholder="значение">
+            <select id="memLayer">
+                <option value="working">→ рабочая</option>
+                <option value="long_term">→ долговременная</option>
+            </select>
+            <select id="memKind"></select>
+            <select id="memState"></select>
+            <button class="btn-mem-save" id="memSaveBtn">💾 Сохранить</button>
+        </div>
+        <button class="btn-suggest" id="suggestBtn">✨ Предложить память (модель)</button>
+        <div class="pending" id="pendingList"></div>
+    </div>
+</div>
+
+<!-- Модальное окно: Задачи (конечный автомат) -->
+<div class="modal-overlay" id="taskModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🎯 Задачи (конечный автомат)</div>
+            <button class="modal-close" data-close="taskModal" title="Закрыть">✕</button>
+        </div>
+        <div class="task-list" id="taskList"></div>
+        <div class="task-actions">
+            <button class="btn-mem-save" id="taskNewBtn">➕ Новая задача</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Инварианты (жёсткие ограничения) -->
+<div class="modal-overlay" id="invariantModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">🛡 Инварианты — нерушимые ограничения</div>
+            <button class="modal-close" data-close="invariantModal" title="Закрыть">✕</button>
+        </div>
+        <div class="inv-list" id="invariantList"></div>
+        <div class="inv-form">
+            <label class="inv-field-label" for="invName">Имя правила</label>
+            <input id="invName" placeholder="напр. Стек — только Python">
+            <div class="inv-row">
+                <div>
+                    <label class="inv-field-label" for="invCategory">Категория</label>
+                    <select id="invCategory">
+                        <option value="architecture">архитектура</option>
+                        <option value="decision">техническое решение</option>
+                        <option value="stack">стек</option>
+                        <option value="business_rule">бизнес-правило</option>
+                        <option value="custom">прочее</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="inv-field-label" for="invScope">Скоуп</label>
+                    <select id="invScope">
+                        <option value="global">глобальный (весь агент)</option>
+                        <option value="profile">профиль (текущий)</option>
+                        <option value="session">сессия (текущая)</option>
+                        <option value="task">задача (текущая)</option>
+                    </select>
+                </div>
+            </div>
+            <label class="inv-field-label" for="invStatement">Формулировка (само правило)</label>
+            <textarea id="invStatement" rows="2" placeholder="напр. Весь код пишется только на Python 3.11"></textarea>
+            <label class="inv-field-label" for="invRationale">Почему нельзя нарушать</label>
+            <textarea id="invRationale" rows="2" placeholder="напр. команда стандартизировала стек"></textarea>
+            <label class="inv-field-label" for="invDenyExamples">Примеры нарушений (через запятую; для мок-проверки)</label>
+            <input id="invDenyExamples" placeholder="напр. go, rust, node, c++">
+            <label class="checkbox-row" style="margin:0 0 8px;">
+                <input type="checkbox" id="invActive" checked style="width:auto;">
+                Активен (инвариант применяется)
+            </label>
+            <div class="inv-actions">
+                <button class="btn-mem-save" id="invSaveBtn">💾 Сохранить инвариант</button>
+                <button class="btn-suggest" id="invNewBtn">➕ Новый</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // === Конфигурация ===
+    const API_BASE = 'http://localhost:8000';
+    const ENDPOINT = '/agent';
+
+    // === Элементы DOM ===
+    const messageEl = document.getElementById('message');
+    const modelEl = document.getElementById('model');
+    const strategyEl = document.getElementById('strategy');
+    const windowSizeEl = document.getElementById('window_size');
+    const temperatureEl = document.getElementById('temperature');
+    const topKEl = document.getElementById('top_k');
+    const topPEl = document.getElementById('top_p');
+    const stopEl = document.getElementById('stop');
+    const maxTokensEl = document.getElementById('max_tokens');
+    const autoSuggestEl = document.getElementById('auto_suggest');
+    const enableToolsEl = document.getElementById('enable_tools');
+    const pipelineEl = document.getElementById('pipeline');
+    const ballBtn = document.getElementById('ballBtn');
+    const bookBtn = document.getElementById('bookBtn');
+    const rateBtn = document.getElementById('rateBtn');
+    const pipelineBtn = document.getElementById('pipelineBtn');
+    const sendBtn = document.getElementById('sendBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const chatMessages = document.getElementById('chatMessages');
+    const statDuration = document.getElementById('statDuration');
+    const statRequestTokens = document.getElementById('statRequestTokens');
+    const statHistoryTokens = document.getElementById('statHistoryTokens');
+    const statResponseTokens = document.getElementById('statResponseTokens');
+    const statTotalTokens = document.getElementById('statTotalTokens');
+    const statCost = document.getElementById('statCost');
+    const contextSummary = document.getElementById('contextSummary');
+    const branchControls = document.getElementById('branchControls');
+    const branchSelect = document.getElementById('branchSelect');
+    const createBranchBtn = document.getElementById('createBranchBtn');
+    // Память
+    const memoryBadge = document.getElementById('memoryBadge');
+    const memoryShort = document.getElementById('memoryShort');
+    const memoryWorking = document.getElementById('memoryWorking');
+    const memoryLongTerm = document.getElementById('memoryLongTerm');
+    const memKey = document.getElementById('memKey');
+    const memValue = document.getElementById('memValue');
+    const memLayer = document.getElementById('memLayer');
+    const memKind = document.getElementById('memKind');
+    const memState = document.getElementById('memState');
+    const memSaveBtn = document.getElementById('memSaveBtn');
+    const suggestBtn = document.getElementById('suggestBtn');
+    const pendingList = document.getElementById('pendingList');
+    // Профиль пользователя (персонализация)
+    const profileBadge = document.getElementById('profileBadge');
+    const profileSelect = document.getElementById('profileSelect');
+    const profileDeleteBtn = document.getElementById('profileDeleteBtn');
+    const profileSaveBtn = document.getElementById('profileSaveBtn');
+    const profileNewBtn = document.getElementById('profileNewBtn');
+    const profileName = document.getElementById('profileName');
+    const profileDisplayName = document.getElementById('profileDisplayName');
+    const profileStyle = document.getElementById('profileStyle');
+    const profileFormat = document.getElementById('profileFormat');
+    const profileConstraints = document.getElementById('profileConstraints');
+    const profileNotes = document.getElementById('profileNotes');
+    const profileOpenBtn = document.getElementById('profileOpenBtn');
+    const memoryOpenBtn = document.getElementById('memoryOpenBtn');
+    // Задача (конечный автомат)
+    const taskBadge = document.getElementById('taskBadge');
+    const taskOpenBtn = document.getElementById('taskOpenBtn');
+    const taskStepper = document.getElementById('taskStepper');
+    const taskMeta = document.getElementById('taskMeta');
+    const taskPauseBtn = document.getElementById('taskPauseBtn');
+    const taskResumeBtn = document.getElementById('taskResumeBtn');
+    const taskListBtn = document.getElementById('taskListBtn');
+    const taskList = document.getElementById('taskList');
+    const taskNewBtn = document.getElementById('taskNewBtn');
+    // Инварианты (жёсткие ограничения агента)
+    const invariantBadge = document.getElementById('invariantBadge');
+    const invariantOpenBtn = document.getElementById('invariantOpenBtn');
+    const invariantList = document.getElementById('invariantList');
+    const invName = document.getElementById('invName');
+    const invCategory = document.getElementById('invCategory');
+    const invScope = document.getElementById('invScope');
+    const invStatement = document.getElementById('invStatement');
+    const invRationale = document.getElementById('invRationale');
+    const invDenyExamples = document.getElementById('invDenyExamples');
+    const invActive = document.getElementById('invActive');
+    const invSaveBtn = document.getElementById('invSaveBtn');
+    const invNewBtn = document.getElementById('invNewBtn');
+
+    const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
+    const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
+    const LONG_TERM_KINDS = ['profile', 'decision', 'knowledge', 'preference', 'agreement', 'fact'];
+    const KIND_LABELS = {
+        goal: 'цель', constraint: 'ограничение', todo: 'задача', result: 'результат',
+        context: 'контекст', note: 'заметка', profile: 'профиль', decision: 'решение',
+        knowledge: 'знание', preference: 'предпочтение', agreement: 'договорённость', fact: 'факт'
+    };
+    const STATE_LABELS = {pending: 'ожидает', in_progress: 'в работе', done: 'готово', blocked: 'заблокировано'};
+
+    // Локализация для конечного автомата.
+    const STAGE_LABELS = {planning: 'планирование', execution: 'выполнение', validation: 'валидация', done: 'готово'};
+    const STAGES = ['planning', 'execution', 'validation', 'done'];
+    const STATUS_LABELS = {active: 'активна', paused: 'на паузе', done: 'завершена'};
+    const ACTION_LABELS = {
+        model_call: 'агент продолжит сам', wait_user: 'ждёт ввода', confirm: 'ждёт подтверждения', done: 'завершено'
+    };
+
+    // Инварианты (жёсткие ограничения)
+    const INV_CATEGORY_LABELS = {
+        architecture: 'архитектура', decision: 'техническое решение',
+        stack: 'стек', business_rule: 'бизнес-правило', custom: 'прочее'
+    };
+
+    // === Состояние ===
+    let history = [];
+    let branches = [];
+    let currentBranchId = null;
+    let sessionId = localStorage.getItem('agentSessionId') || null;
+    let memory = {working: [], long_term: []};
+    let pendingMemory = [];
+    let profiles = [];
+    let activeProfileId = null;
+    let sessionProfileId = null;
+    let tasks = [];
+    let currentTaskId = null;
+    let invariants = [];
+    let editingInvariantId = null;
+
+    // === Модальные окна ===
+    function openModal(id) {
+        document.getElementById(id).classList.add('visible');
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).classList.remove('visible');
+    }
+
+    // === Вспомогательные ===
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
+    function escapeAttr(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function formatNumber(n) {
+        return Number(n || 0).toLocaleString('ru-RU');
+    }
+
+    async function apiFetch(url, options) {
+        const res = await fetch(`${API_BASE}${url}`, options);
+        if (!res.ok) {
+            let detail = 'Ошибка сервера';
+            try {
+                detail = (await res.json()).detail || detail;
+            } catch (e) {
+            }
+            throw new Error(detail);
+        }
+        return res.json();
+    }
+
+    // === Отображение чата ===
+    function renderChat() {
+        chatMessages.innerHTML = '';
+        history.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = `message ${msg.role}`;
+            const refused = /^⛔\s*Отказываюсь/.test(msg.content || '');
+            const chip = refused ? '<div class="refusal-chip">⛔ нарушен инвариант</div>' : '';
+            div.innerHTML = `
+        <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
+        <div class="bubble">${chip}${escapeHtml(msg.content)}</div>
+      `;
+            chatMessages.appendChild(div);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Показываем цепочку вызовов MCP-инструментов отдельными бейджами (не входят в history).
+    function renderToolCalls(calls) {
+        if (!calls || !calls.length) return;
+
+        // Заголовок пайплайна (только когда вызовов больше одного).
+        if (calls.length > 1) {
+            const chainDiv = document.createElement('div');
+            chainDiv.className = 'message assistant';
+            chainDiv.innerHTML = `
+        <div class="avatar">🔗</div>
+        <div class="bubble">
+          <div class="tool-chip">Пайплайн: ${calls.map(c => escapeHtml(c.name)).join(' → ')}</div>
+        </div>
+      `;
+            chatMessages.appendChild(chainDiv);
+        }
+
+        calls.forEach((c, i) => {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            const status = c.ok ? '✅' : '⚠️';
+            const text = c.result != null ? c.result : (c.error || '');
+            const args = c.arguments ? JSON.stringify(c.arguments) : '';
+            const step = calls.length > 1 ? `<span class="tool-step">шаг ${i + 1}</span> ` : '';
+            div.innerHTML = `
+        <div class="avatar">🔮</div>
+        <div class="bubble">
+          <div class="tool-chip">${step}${status} инструмент: ${escapeHtml(c.name)}</div>
+          ${args ? `<div class="tool-args">вход: ${escapeHtml(args)}</div>` : ''}
+          ${text ? `<div class="tool-result">${escapeHtml(text)}</div>` : ''}
+        </div>
+      `;
+            chatMessages.appendChild(div);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Быстрое демо: заполнить поле и сразу отправить с включёнными инструментами.
+    function quickBall() {
+        const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
+        if (q === null || !q.trim()) return;
+        enableToolsEl.checked = true;
+        pipelineEl.checked = false;
+        messageEl.value = `Погадай на шаре: ${q.trim()}`;
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickBook() {
+        const q = prompt('Вопрос для гадания по книге:', 'Что ждет моего друга Колю?');
+        if (q === null || !q.trim()) return;
+        enableToolsEl.checked = true;
+        pipelineEl.checked = false;
+        messageEl.value = `Погадай по книге («Алиса в Стране чудес»): ${q.trim()}`;
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickRate() {
+        enableToolsEl.checked = true;
+        pipelineEl.checked = false;
+        messageEl.value = 'Выведи текущий курс EUR/USD';
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function quickPipeline() {
+        enableToolsEl.checked = true;
+        pipelineEl.checked = true;
+        const topic = prompt('Тема для поиска и сводки:', 'DeepSeek');
+        if (topic === null || !topic.trim()) return;
+        messageEl.value = `Найди информацию про ${topic.trim()} и сохрани краткую сводку в файл summary.txt`;
+        messageEl.focus();
+        sendRequest();
+    }
+
+    function updateStats(duration, usage, cost) {
+        statDuration.textContent = (duration != null) ? `${duration}s` : '—';
+        statRequestTokens.textContent = (usage && usage.prompt_tokens != null) ? `${usage.prompt_tokens}` : '—';
+        statResponseTokens.textContent = (usage && usage.response_tokens != null) ? `${usage.response_tokens}` : '—';
+        statHistoryTokens.textContent = (usage && usage.history_tokens != null) ? `${usage.history_tokens}` : '—';
+        statTotalTokens.textContent = (usage && usage.total_tokens != null) ? `${usage.total_tokens}` : '—';
+        statCost.textContent = (cost != null) ? `$${cost.toFixed(6)}` : '—';
+    }
+
+    // === Отображение памяти (три слоя) ===
+    function renderMemory() {
+        const working = memory.working || [];
+        const longTerm = memory.long_term || [];
+        memoryBadge.textContent = `рабочая ${working.length} · долговременная ${longTerm.length}`;
+        memoryShort.innerHTML = `<div class="mem-empty">Сообщений в диалоге: ${formatNumber(history.length)}</div>`;
+        memoryWorking.innerHTML = working.length
+            ? working.map(renderMemItem).join('')
+            : '<div class="mem-empty">Нет записей. Сохраните данные текущей задачи.</div>';
+        memoryLongTerm.innerHTML = longTerm.length
+            ? longTerm.map(renderMemItem).join('')
+            : '<div class="mem-empty">Нет записей. Сохраните профиль/решения/знания.</div>';
+    }
+
+    function renderMemItem(e) {
+        const isWorking = e.state !== undefined && Object.prototype.hasOwnProperty.call(e, 'state');
+        const kind = KIND_LABELS[e.kind] || e.kind;
+        const layer = isWorking ? 'working' : 'long_term';
+        const state = e.state ? `<span class="mem-state">${escapeHtml(STATE_LABELS[e.state] || e.state)}</span>` : '';
+        const moveTo = isWorking ? 'long_term' : 'working';
+        const moveLabel = isWorking ? '→ долговр.' : '→ рабочая';
+        // Для долговременной памяти показываем привязку: общая (без профиля) или «мой профиль».
+        const ownerTag = (!isWorking && !e.profile_id)
+            ? ' <span class="mem-kind" style="background:rgba(0,184,148,0.25);color:#81ecec">общая</span>'
+            : '';
+        return `
+      <li class="mem-item">
+        <span class="mem-kind">${escapeHtml(kind)}</span><b>${escapeHtml(e.key)}</b>: ${escapeHtml(e.value)}${ownerTag}${state}
+        <div class="mem-actions">
+          <button class="mem-btn" data-action="move" data-layer="${escapeAttr(layer)}" data-to="${escapeAttr(moveTo)}" data-key="${escapeAttr(e.key)}">${moveLabel}</button>
+          <button class="mem-btn del" data-action="delete" data-layer="${escapeAttr(layer)}" data-key="${escapeAttr(e.key)}">✕</button>
+        </div>
+      </li>`;
+    }
+
+    function renderPending() {
+        if (!pendingMemory.length) {
+            pendingList.innerHTML = '';
+            return;
+        }
+        const items = pendingMemory.map((p, i) => {
+            const kind = KIND_LABELS[p.kind] || p.kind;
+            const state = p.state ? ` · ${escapeHtml(STATE_LABELS[p.state] || p.state)}` : '';
+            return `
+        <div class="pending-item">
+          <span class="p-layer">${p.layer === 'working' ? 'рабочая' : 'долговр.'}</span>
+          <span class="p-text"><b>${escapeHtml(p.key)}</b>: ${escapeHtml(p.value)} <span class="mem-kind">${escapeHtml(kind)}</span>${state}</span>
+          <button class="mem-btn" data-action="approve" data-index="${i}">✅</button>
+          <button class="mem-btn del" data-action="reject" data-index="${i}">✕</button>
+        </div>`;
+        }).join('');
+        pendingList.innerHTML = `<div class="pending-title">Предложения к подтверждению</div>${items}`;
+    }
+
+    // === Форма сохранения в память ===
+    function updateMemoryForm() {
+        const layer = memLayer.value;
+        const kinds = layer === 'working' ? WORKING_KINDS : LONG_TERM_KINDS;
+        memKind.innerHTML = kinds.map(k => `<option value="${k}">${KIND_LABELS[k]}</option>`).join('');
+        memState.style.display = layer === 'working' ? 'inline-block' : 'none';
+        if (layer === 'working') {
+            memState.innerHTML = `<option value="">— состояние —</option>` +
+                WORKING_STATES.map(s => `<option value="${s}">${STATE_LABELS[s]}</option>`).join('');
+        }
+    }
+
+    // === Сводка по контексту ===
+    function updateBranchControlsVisibility() {
+        branchControls.classList.toggle('visible', strategyEl.value === 'branching');
+    }
+
+    function renderBranches() {
+        if (!branches.length) {
+            branchSelect.innerHTML = '<option value="">— нет веток —</option>';
+            return;
+        }
+        branchSelect.innerHTML = branches.map(b => {
+            const label = `${b.name} (${b.message_count} сообщ.)`;
+            const selected = b.branch_id === currentBranchId ? ' selected' : '';
+            return `<option value="${escapeAttr(b.branch_id)}"${selected}>${escapeHtml(label)}</option>`;
+        }).join('');
+    }
+
+    function renderContext(context, flash) {
+        if (!context) {
+            contextSummary.style.display = 'none';
+            contextSummary.innerHTML = '';
+            return;
+        }
+        contextSummary.style.display = 'block';
+        const strategy = context.strategy;
+        const total = context.total_messages || 0;
+        const sent = context.sent_messages != null ? context.sent_messages : 0;
+        const discarded = context.discarded_messages != null ? context.discarded_messages : 0;
+        const wm = context.working_count != null ? context.working_count : (memory.working || []).length;
+        const lm = context.long_term_count != null ? context.long_term_count : (memory.long_term || []).length;
+        const memLine = `Память: рабочая <b>${formatNumber(wm)}</b> · долговременная <b>${formatNumber(lm)}</b>`;
+        let html;
+
+        if (strategy === 'sticky_facts') {
+            html =
+                `<div class="summary-head"><span class="icon">🧠</span> Sticky Facts · факты из долговременной памяти</div>` +
+                `<div class="meta">${memLine} · отправлено: факты + последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+        } else if (strategy === 'branching') {
+            const current = branches.find(b => b.branch_id === currentBranchId) || {};
+            html =
+                `<div class="summary-head"><span class="icon">🔀</span> Branching · ветка «${escapeHtml(current.name || '—')}»</div>` +
+                `<div class="meta">${memLine} · сообщений: <b>${formatNumber(total)}</b> · веток: <b>${formatNumber(branches.length)}</b> · checkpoint: <b>${formatNumber(current.checkpoint || 0)}</b></div>`;
+        } else {
+            html =
+                `<div class="summary-head"><span class="icon">🪟</span> Sliding Window · окно N = ${formatNumber(context.window_size || 0)}</div>` +
+                `<div class="meta">${memLine} · отправлено: последние <b>${formatNumber(sent)}</b> из <b>${formatNumber(total)}</b> сообщений · отброшено <b>${formatNumber(discarded)}</b></div>`;
+        }
+
+        const ap = getActiveProfile();
+        if (ap) {
+            html += `<div class="meta">👤 Профиль: <b>${escapeHtml(ap.display_name || ap.name)}</b>` +
+                (ap.style ? ` · стиль: ${escapeHtml(ap.style)}` : '') +
+                (ap.constraints ? ` · ограничения: ${escapeHtml(ap.constraints)}` : '') +
+                `</div>`;
+        }
+
+        contextSummary.innerHTML = html;
+        if (flash) {
+            contextSummary.classList.remove('flash');
+            void contextSummary.offsetWidth;
+            contextSummary.classList.add('flash');
+        }
+    }
+
+    // === Операции над памятью ===
+    // Операции, привязанные к сессии (рабочая память и переносы между слоями).
+    async function applyOps(ops) {
+        if (!sessionId) {
+            alert('Для рабочей памяти нужен активный диалог (создайте диалог, отправив сообщение).');
+            return false;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops}),
+            });
+            memory = data.memory;
+            renderMemory();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с памятью: ${err.message}`);
+            return false;
+        }
+    }
+
+    // Долговременная память: привязываем сохраняемые записи к активному профилю.
+    async function applyLongTermOps(ops) {
+        const scopedOps = ops.map(op => {
+            const o = {...op};
+            const pid = currentProfileId();
+            if (o.action === 'save' && pid) o.profile_id = pid;
+            return o;
+        });
+        try {
+            await apiFetch(`/memory/longterm`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ops: scopedOps}),
+            });
+            // Перечитываем в разрезе активного профиля (общие + привязанные).
+            await loadLongTerm();
+            return true;
+        } catch (err) {
+            alert(`Ошибка операции с долговременной памятью: ${err.message}`);
+            return false;
+        }
+    }
+
+    async function loadLongTerm() {
+        try {
+            const pid = currentProfileId();
+            const q = pid ? `?profile_id=${encodeURIComponent(pid)}` : '';
+            const data = await apiFetch(`/memory/longterm${q}`);
+            memory.long_term = data.long_term || [];
+            renderMemory();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    // Рабочая память сессии (список задач) в разрезе профиля.
+    async function loadSessionMemory() {
+        if (!sessionId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory`);
+            memory.working = data.working || [];
+            memory.long_term = data.long_term || [];
+            renderMemory();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    // Перечитываем и задачи, и долговременную память под текущий профиль.
+    async function refreshMemory() {
+        if (sessionId) {
+            await loadSessionMemory();
+        } else {
+            await loadLongTerm();
+        }
+    }
+
+    function deleteMemory(layer, key) {
+        if (layer === 'long_term') return applyLongTermOps([{action: 'delete', layer, key}]);
+        return applyOps([{action: 'delete', layer, key}]);
+    }
+
+    function moveMemory(key, fromLayer, toLayer) {
+        // Перенос всегда затрагивает рабочую память (источник или цель) — нужна сессия.
+        return applyOps([{action: 'move', from: fromLayer, to: toLayer, key}]);
+    }
+
+    async function saveMemoryFromForm() {
+        const key = memKey.value.trim();
+        const value = memValue.value.trim();
+        const layer = memLayer.value;
+        if (!key || !value) {
+            alert('Укажите ключ и значение');
+            return;
+        }
+        const op = {action: 'save', layer, key, value, kind: memKind.value};
+        if (layer === 'working') op.state = memState.value || null;
+        const ok = (layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
+            memKey.value = '';
+            memValue.value = '';
+        }
+    }
+
+    async function suggestMemory() {
+        if (!sessionId) {
+            alert('Сначала отправьте сообщение, чтобы создать диалог.');
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/memory/suggest`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({}),
+            });
+            pendingMemory = data.pending_memory || [];
+            renderPending();
+        } catch (err) {
+            alert(`Ошибка генерации предложений памяти: ${err.message}`);
+        }
+    }
+
+    async function applySuggestion(index) {
+        const s = pendingMemory[index];
+        if (!s) return;
+        const op = {action: 'save', layer: s.layer, key: s.key, value: s.value, kind: s.kind};
+        if (s.layer === 'working') op.state = s.state || null;
+        else op.tags = s.tags || [];
+        const ok = (s.layer === 'long_term')
+            ? await applyLongTermOps([op])
+            : await applyOps([op]);
+        if (ok) {
+            pendingMemory.splice(index, 1);
+            renderPending();
+        }
+    }
+
+    function rejectSuggestion(index) {
+        pendingMemory.splice(index, 1);
+        renderPending();
+    }
+
+    // === Профиль пользователя (персонализация) ===
+    function getActiveProfile() {
+        return profiles.find(p => p.profile_id === activeProfileId) || null;
+    }
+
+    // Профиль «в работе»: если открыта сессия — профиль сессии (с фолбэком
+    // на глобальный активный), иначе — глобальный активный.
+    function currentProfileId() {
+        if (sessionId) return sessionProfileId || activeProfileId || null;
+        return activeProfileId || null;
+    }
+
+    async function bindSessionProfile(profileId) {
+        if (!sessionId) return;
+        try {
+            await apiFetch(`/agent/${encodeURIComponent(sessionId)}/profile`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({profile_id: profileId}),
+            });
+            sessionProfileId = profileId;
+        } catch (err) {
+            alert(`Ошибка привязки профиля к сессии: ${err.message}`);
+        }
+    }
+
+    function renderProfiles() {
+        const active = getActiveProfile();
+        let badge = active
+            ? `активен: ${active.display_name || active.name}`
+            : 'не задан';
+        if (sessionId) {
+            const sessionProfile = profiles.find(p => p.profile_id === sessionProfileId) || null;
+            badge += sessionProfile
+                ? ` · сессия: ${sessionProfile.display_name || sessionProfile.name}`
+                : ' · сессия: без профиля';
+        }
+        profileBadge.textContent = badge;
+        profileSelect.innerHTML = profiles.length
+            ? profiles.map(p => {
+                const label = p.display_name || p.name;
+                const sel = p.profile_id === activeProfileId ? ' selected' : '';
+                return `<option value="${escapeAttr(p.profile_id)}"${sel}>${escapeHtml(label)}</option>`;
+            }).join('')
+            : '<option value="">— нет профилей —</option>';
+    }
+
+    function fillProfileForm(profile) {
+        profileName.value = profile ? (profile.name || '') : '';
+        profileDisplayName.value = profile ? (profile.display_name || '') : '';
+        profileStyle.value = profile ? (profile.style || '') : '';
+        profileFormat.value = profile ? (profile.format || '') : '';
+        profileConstraints.value = profile ? (profile.constraints || '') : '';
+        profileNotes.value = profile ? (profile.notes || '') : '';
+    }
+
+    async function loadProfiles() {
+        try {
+            const data = await apiFetch('/profiles');
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    async function saveProfile() {
+        const name = profileName.value.trim();
+        if (!name) {
+            alert('Укажите ключ профиля (напр. ivan_dev)');
+            return;
+        }
+        const body = {
+            name: name,
+            display_name: profileDisplayName.value.trim(),
+            style: profileStyle.value.trim(),
+            format: profileFormat.value.trim(),
+            constraints: profileConstraints.value.trim(),
+            notes: profileNotes.value.trim(),
+            is_active: true,
+        };
+        if (activeProfileId && getActiveProfile()) body.profile_id = activeProfileId;
+        try {
+            const data = await apiFetch('/profiles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || (data.profile ? data.profile.profile_id : null);
+            if (activeProfileId) await bindSessionProfile(activeProfileId);
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await refreshMemory();
+        } catch (err) {
+            alert(`Ошибка сохранения профиля: ${err.message}`);
+        }
+    }
+
+    async function deleteProfile() {
+        if (!activeProfileId) {
+            alert('Нет активного профиля для удаления');
+            return;
+        }
+        if (!confirm('Удалить активный профиль? Это также отвяжет сессии и удалит его записи памяти.')) return;
+        const deletedId = activeProfileId;
+        try {
+            const data = await apiFetch(`/profiles/${encodeURIComponent(deletedId)}`, {
+                method: 'DELETE',
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            if (sessionProfileId === deletedId) sessionProfileId = null;
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await refreshMemory();
+        } catch (err) {
+            alert(`Ошибка удаления профиля: ${err.message}`);
+        }
+    }
+
+    async function activateProfile(profileId) {
+        if (!profileId) return;
+        try {
+            const data = await apiFetch(`/profiles/${encodeURIComponent(profileId)}/activate`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: '{}',
+            });
+            profiles = data.profiles || [];
+            activeProfileId = data.active_profile_id || null;
+            await bindSessionProfile(profileId);
+            renderProfiles();
+            fillProfileForm(getActiveProfile());
+            await refreshMemory();
+        } catch (err) {
+            alert(`Ошибка активации профиля: ${err.message}`);
+        }
+    }
+
+    function newProfile() {
+        activeProfileId = null;
+        fillProfileForm(null);
+        renderProfiles();
+        refreshMemory();
+        profileName.focus();
+    }
+
+    // === Задача (конечный автомат) ===
+    function currentTask() {
+        return tasks.find(t => t.task_id === currentTaskId) || null;
+    }
+
+    async function loadTasks() {
+        if (!sessionId) {
+            tasks = [];
+            currentTaskId = null;
+            renderTask();
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks`);
+            tasks = data.tasks || [];
+            const active = data.active_task_id || null;
+            // Выбранная задача: текущая (если жива), иначе активная.
+            if (!tasks.some(t => t.task_id === currentTaskId)) {
+                currentTaskId = active;
+            }
+            renderTask();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    function renderTask() {
+        const t = currentTask();
+        if (!t) {
+            taskBadge.textContent = 'нет';
+            taskStepper.innerHTML = '';
+            taskMeta.innerHTML = 'Задача не выбрана — напишите сообщение, чтобы создать новую.';
+            taskPauseBtn.disabled = true;
+            taskResumeBtn.disabled = true;
+            renderTaskList();
+            return;
+        }
+
+        const paused = t.status === 'paused';
+        taskBadge.textContent = `${STAGE_LABELS[t.stage] || t.stage}${t.step_total ? ` · ${t.step_index}/${t.step_total}` : ''}`;
+
+        // Степпер этапов.
+        const stageIdx = STAGES.indexOf(t.stage);
+        taskStepper.innerHTML = STAGES.map((s, i) => {
+            let cls = 'task-step';
+            if (i === stageIdx) cls += (paused ? ' paused' : ' current');
+            else if (i < stageIdx || t.stage === 'done') cls += ' done';
+            const mark = (i < stageIdx || t.stage === 'done') ? '✓ ' : '';
+            const arrow = i < STAGES.length - 1 ? '<span class="task-arrow">→</span>' : '';
+            return `<span class="${cls}">${mark}${STAGE_LABELS[s]}</span>${arrow}`;
+        }).join('');
+
+        const parts = [`<b>${escapeHtml(t.title || 'Задача')}</b>`];
+        parts.push(`статус: ${STATUS_LABELS[t.status] || t.status}`);
+        if (t.step_total) {
+            parts.push(`шаг ${t.step_index}/${t.step_total} · ${escapeHtml(t.step_label || '—')}`);
+        }
+        parts.push(`действие: ${ACTION_LABELS[t.expected_action] || t.expected_action}`);
+        const g = t.guards || {};
+        parts.push(`гварды: план ${g.plan_approved ? '✓' : '✗'} · валидация ${g.validation_passed ? '✓' : '✗'}`);
+        taskMeta.innerHTML = parts.join(' · ');
+
+        taskPauseBtn.disabled = (t.status !== 'active');
+        taskResumeBtn.disabled = (t.status !== 'paused');
+        renderTaskList();
+    }
+
+    function renderTaskList() {
+        if (!tasks.length) {
+            taskList.innerHTML = '<div class="mem-empty">Нет задач.</div>';
+            return;
+        }
+        taskList.innerHTML = tasks.map(t => {
+            const sel = t.task_id === currentTaskId ? ' selected' : '';
+            const chip = `<span class="task-status-chip ${escapeAttr(t.status)}">${STATUS_LABELS[t.status] || t.status}</span>`;
+            const title = t.title || 'Без названия';
+            const sub = `этап: ${STAGE_LABELS[t.stage] || t.stage}` +
+                (t.step_total ? ` · шаг ${t.step_index}/${t.step_total}` : '');
+            return `
+          <div class="task-item${sel}">
+            <div class="t-main">
+              <div class="t-title">${escapeHtml(title)}</div>
+              <div class="t-sub">${escapeHtml(sub)}</div>
+            </div>
+            ${chip}
+            <button class="task-btn" data-task-action="select" data-id="${escapeAttr(t.task_id)}" title="Работать с этой задачей">🎯</button>
+            <button class="task-btn" data-task-action="pause" data-id="${escapeAttr(t.task_id)}" title="Пауза" ${t.status !== 'active' ? 'disabled' : ''}>⏸</button>
+            <button class="task-btn" data-task-action="resume" data-id="${escapeAttr(t.task_id)}" title="Продолжить" ${t.status !== 'paused' ? 'disabled' : ''}>▶</button>
+            <button class="task-btn" data-task-action="delete" data-id="${escapeAttr(t.task_id)}" title="Удалить">✕</button>
+          </div>`;
+        }).join('');
+    }
+
+    async function loadTaskHistory(taskId) {
+        // Показать историю именно этой задачи (изоляция: каждая задача — свой чат).
+        if (!sessionId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`);
+            const msgs = (data.task && data.task.messages) || [];
+            history = msgs.length ? msgs : [];
+            renderChat();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    async function selectTask(taskId) {
+        currentTaskId = taskId;
+        renderTask();
+        await loadTaskHistory(taskId);
+    }
+
+    async function pauseCurrentTask() {
+        const t = currentTask();
+        if (!t || !sessionId) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/pause`, {method: 'POST'});
+        await loadTasks();
+        await loadTaskHistory(t.task_id);
+    }
+
+    async function resumeCurrentTask() {
+        const t = currentTask();
+        if (!t || !sessionId) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(t.task_id)}/resume`, {method: 'POST'});
+        await loadTasks();
+        await loadTaskHistory(t.task_id);
+    }
+
+    async function createNewTask() {
+        if (!sessionId) {
+            alert('Сначала отправьте сообщение, чтобы создать диалог.');
+            return;
+        }
+        const title = prompt('Название задачи (можно пусто):', '') || '';
+        const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title}),
+        });
+        currentTaskId = data.task.task_id;
+        await loadTasks();
+        await loadTaskHistory(data.task.task_id);
+        closeModal('taskModal');
+    }
+
+    async function deleteTask(taskId) {
+        if (!sessionId) return;
+        if (!confirm('Удалить задачу?')) return;
+        await apiFetch(`/agent/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`, {method: 'DELETE'});
+        if (currentTaskId === taskId) currentTaskId = null;
+        await loadTasks();
+    }
+
+    // === Инварианты (жёсткие ограничения агента) ===
+    function invScopeOf(inv) {
+        if (inv.task_id) return 'task';
+        if (inv.session_id) return 'session';
+        if (inv.profile_id) return 'profile';
+        return 'global';
+    }
+
+    function invScopeLabel(inv) {
+        const parts = [];
+        if (inv.profile_id) parts.push('профиль');
+        if (inv.session_id) parts.push('сессия');
+        if (inv.task_id) parts.push('задача');
+        return parts.length ? parts.join('+') : 'глобальный';
+    }
+
+    function renderInvariants() {
+        const active = invariants.filter(i => i.is_active);
+        invariantBadge.textContent = `${active.length}/${invariants.length}`;
+        if (!invariants.length) {
+            invariantList.innerHTML = '<div class="mem-empty">Нет инвариантов. Добавьте правило, которое агент не вправе нарушать.</div>';
+            return;
+        }
+        invariantList.innerHTML = invariants.map(inv => {
+            const cat = INV_CATEGORY_LABELS[inv.category] || inv.category;
+            const scope = invScopeLabel(inv);
+            const chip = inv.is_active
+                ? '<span class="task-status-chip active">активен</span>'
+                : '<span class="task-status-chip paused">выкл</span>';
+            const deny = (inv.deny_examples && inv.deny_examples.length)
+                ? `<div class="t-sub">Примеры нарушений: ${escapeHtml(inv.deny_examples.join(', '))}</div>` : '';
+            const why = inv.rationale ? `<div class="t-sub">Почему нельзя: ${escapeHtml(inv.rationale)}</div>` : '';
+            return `
+          <div class="invariant-item${inv.is_active ? '' : ' off'}">
+            <div class="t-main">
+              <div class="t-title">${escapeHtml(inv.name)}
+                <span class="mem-kind">${escapeHtml(cat)}</span>
+                <span class="mem-kind" style="background:rgba(0,184,148,0.25);color:#81ecec">${escapeHtml(scope)}</span>
+              </div>
+              <div class="t-sub">${escapeHtml(inv.statement)}</div>
+              ${why}${deny}
+            </div>
+            ${chip}
+            <button class="task-btn" data-inv-action="toggle" data-id="${escapeAttr(inv.invariant_id)}" title="${inv.is_active ? 'Выключить правило' : 'Включить правило'}">${inv.is_active ? '⏸' : '▶'}</button>
+            <button class="task-btn" data-inv-action="edit" data-id="${escapeAttr(inv.invariant_id)}" title="Редактировать">✎</button>
+            <button class="task-btn" data-inv-action="delete" data-id="${escapeAttr(inv.invariant_id)}" title="Удалить">✕</button>
+          </div>`;
+        }).join('');
+    }
+
+    function fillInvariantForm(inv) {
+        editingInvariantId = inv ? inv.invariant_id : null;
+        invName.value = inv ? (inv.name || '') : '';
+        invCategory.value = inv ? (inv.category || 'business_rule') : 'business_rule';
+        invScope.value = inv ? invScopeOf(inv) : 'global';
+        invStatement.value = inv ? (inv.statement || '') : '';
+        invRationale.value = inv ? (inv.rationale || '') : '';
+        invDenyExamples.value = inv ? ((inv.deny_examples || []).join(', ')) : '';
+        invActive.checked = inv ? inv.is_active !== false : true;
+    }
+
+    function newInvariant() {
+        fillInvariantForm(null);
+        invName.focus();
+    }
+
+    async function loadInvariants() {
+        try {
+            const data = await apiFetch('/invariants');
+            invariants = data.invariants || [];
+            renderInvariants();
+        } catch (err) { /* сервер недоступен */ }
+    }
+
+    async function saveInvariant() {
+        const name = invName.value.trim();
+        const statement = invStatement.value.trim();
+        if (!name || !statement) {
+            alert('Укажите имя и формулировку инварианта');
+            return;
+        }
+        const body = {
+            name: name,
+            statement: statement,
+            category: invCategory.value,
+            rationale: invRationale.value.trim(),
+            deny_examples: invDenyExamples.value.split(',').map(s => s.trim()).filter(Boolean),
+            is_active: invActive.checked,
+            profile_id: '', session_id: '', task_id: '',
+        };
+        const scope = invScope.value;
+        if (scope === 'profile') {
+            const pid = currentProfileId();
+            if (!pid) { alert('Для скоупа «профиль» нужен активный профиль'); return; }
+            body.profile_id = pid;
+        } else if (scope === 'session') {
+            if (!sessionId) { alert('Для скоупа «сессия» нужен активный диалог'); return; }
+            body.session_id = sessionId;
+        } else if (scope === 'task') {
+            if (!currentTaskId) { alert('Для скоупа «задача» нужна активная задача'); return; }
+            body.task_id = currentTaskId;
+        }
+        if (editingInvariantId) body.invariant_id = editingInvariantId;
+        try {
+            const data = await apiFetch('/invariants', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            invariants = data.invariants || [];
+            renderInvariants();
+            newInvariant();
+        } catch (err) {
+            alert(`Ошибка сохранения инварианта: ${err.message}`);
+        }
+    }
+
+    async function toggleInvariant(invariantId) {
+        try {
+            await apiFetch(`/invariants/${encodeURIComponent(invariantId)}/toggle`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: '{}',
+            });
+            await loadInvariants();
+        } catch (err) {
+            alert(`Ошибка переключения инварианта: ${err.message}`);
+        }
+    }
+
+    async function deleteInvariant(invariantId) {
+        if (!confirm('Удалить инвариант?')) return;
+        try {
+            await apiFetch(`/invariants/${encodeURIComponent(invariantId)}`, {method: 'DELETE'});
+            await loadInvariants();
+        } catch (err) {
+            alert(`Ошибка удаления инварианта: ${err.message}`);
+        }
+    }
+
+    async function editInvariant(invariantId) {
+        const inv = invariants.find(i => i.invariant_id === invariantId);
+        if (inv) fillInvariantForm(inv);
+    }
+
+    // === Отправка запроса ===
+    async function sendRequest() {
+        const userMessage = messageEl.value.trim();
+        if (!userMessage) {
+            alert('Введите сообщение');
+            return;
+        }
+        const model = modelEl.value;
+        if (!model) {
+            alert('Выберите модель');
+            return;
+        }
+
+        const strategy = strategyEl.value;
+        const windowSize = parseInt(windowSizeEl.value) || 5;
+        const prevTaskId = currentTaskId;
+
+        history.push({role: 'user', content: userMessage});
+        messageEl.value = '';
+        renderChat();
+
+        const temperature = parseFloat(temperatureEl.value) || 1.0;
+        const topK = parseInt(topKEl.value) || 0;
+        const topP = parseFloat(topPEl.value) || 1.0;
+        const maxTokens = parseInt(maxTokensEl.value) || 4096;
+        const stopRaw = stopEl.value.trim();
+        let stop = null;
+        if (stopRaw) {
+            stop = stopRaw.split(',').map(s => s.trim()).filter(Boolean);
+            if (stop.length === 1) stop = stop[0];
+        }
+
+        const payload = {
+            messages: history,
+            model: model,
+            strategy: strategy,
+            window_size: windowSize,
+            temperature: temperature,
+            top_k: topK,
+            top_p: topP,
+            max_tokens: maxTokens,
+            auto_suggest_memory: autoSuggestEl.checked,
+            enable_tools: enableToolsEl.checked,
+            pipeline: pipelineEl.checked,
+        };
+        if (sessionId) payload.session_id = sessionId;
+        if (stop) payload.stop = stop;
+        if (activeProfileId) payload.profile_id = activeProfileId;
+        if (currentTaskId) payload.task_id = currentTaskId;
+
+        try {
+            const data = await apiFetch(ENDPOINT, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+
+            if (data.session_id) {
+                sessionId = data.session_id;
+                localStorage.setItem('agentSessionId', sessionId);
+            }
+
+            // Если по этому сообщению завелась НОВАЯ задача — очищаем чат от
+            // сообщений предыдущей задачи и показываем только новый обмен.
+            if (data.task && data.task.task_id !== prevTaskId) {
+                history = [
+                    {role: 'user', content: userMessage},
+                    {role: 'assistant', content: data.response},
+                ];
+            } else {
+                history.push({role: 'assistant', content: data.response});
+            }
+            renderChat();
+            renderToolCalls(data.tool_calls || []);
+
+            memory = data.memory || {working: [], long_term: []};
+            pendingMemory = data.pending_memory || [];
+            renderMemory();
+            renderPending();
+
+            if (data.task) {
+                currentTaskId = data.task.task_id;
+                await loadTasks();
+            }
+
+            if (data.profile) {
+                activeProfileId = data.profile.id;
+                sessionProfileId = data.profile.id;
+                renderProfiles();
+            }
+
+            if (data.context && data.context.branches) {
+                branches = data.context.branches;
+                currentBranchId = data.context.branch ? data.context.branch.id : currentBranchId;
+                renderBranches();
+            }
+
+            updateStats(data.duration, data.usage, data.cost);
+            renderContext(data.context, true);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+            history.pop();
+            renderChat();
+        }
+    }
+
+    // === Управление ветками (strategies branching) ===
+    async function createBranches() {
+        if (!sessionId) {
+            alert('Сначала отправьте хотя бы одно сообщение.');
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/branch`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({}),
+            });
+            currentBranchId = data.current_branch;
+            branches = data.branches || [];
+            if (data.messages) {
+                history = data.messages;
+                renderChat();
+            }
+            renderBranches();
+            renderContext({
+                strategy: 'branching', total_messages: history.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: history.length, discarded_messages: 0,
+                working_count: (memory.working || []).length, long_term_count: (memory.long_term || []).length,
+            }, true);
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    }
+
+    async function switchBranch(branchId) {
+        if (!sessionId || !branchId) return;
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(sessionId)}/switch`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({branch_id: branchId}),
+            });
+            currentBranchId = data.current_branch;
+            branches = data.branches || [];
+            if (data.messages) {
+                history = data.messages;
+                renderChat();
+            }
+            renderBranches();
+            renderMemory();
+            renderContext({
+                strategy: 'branching', total_messages: history.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: history.length, discarded_messages: 0,
+                working_count: (memory.working || []).length, long_term_count: (memory.long_term || []).length,
+            }, true);
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    }
+
+    // === Восстановление сессии ===
+    async function restoreSession(savedId) {
+        try {
+            const data = await apiFetch(`/agent/${encodeURIComponent(savedId)}`);
+            sessionId = data.session_id || savedId;
+            branches = data.branches || [];
+            currentBranchId = data.current_branch || null;
+            sessionProfileId = data.profile_id || null;
+            memory = {working: data.working || [], long_term: data.long_term || []};
+            pendingMemory = [];
+            tasks = data.tasks || [];
+            currentTaskId = data.active_task_id || null;
+            // История: показываем сообщения активной задачи, иначе — сессии.
+            const active = tasks.find(t => t.task_id === currentTaskId);
+            history = (active && active.messages && active.messages.length)
+                ? active.messages
+                : (data.messages || []);
+            if (data.strategy) strategyEl.value = data.strategy;
+            if (data.window_size != null) windowSizeEl.value = data.window_size;
+            const win = data.window_size || 5;
+            renderBranches();
+            updateBranchControlsVisibility();
+            renderMemory();
+            renderPending();
+            renderTask();
+            renderContext({
+                strategy: data.strategy, total_messages: history.length, window_size: win,
+                working_count: memory.working.length, long_term_count: memory.long_term.length,
+                branch: {id: currentBranchId}, branches: branches,
+                sent_messages: data.strategy === 'branching' ? history.length : Math.min(history.length, win),
+                discarded_messages: data.strategy === 'branching' ? 0 : Math.max(0, history.length - win),
+            }, false);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    // === Новый диалог ===
+    async function resetChat() {
+        if (sessionId) {
+            try {
+                await apiFetch(`/agent/${encodeURIComponent(sessionId)}`, {method: 'DELETE'});
+            } catch (err) { /* сервер недоступен — чистим локально */
+            }
+        }
+        sessionId = null;
+        localStorage.removeItem('agentSessionId');
+        history = [];
+        branches = [];
+        currentBranchId = null;
+        sessionProfileId = null;
+        tasks = [];
+        currentTaskId = null;
+        memory = {working: [], long_term: memory.long_term || []};
+        pendingMemory = [];
+        history.push({
+            role: 'assistant',
+            content: '👋 Привет! Я AI-агент на базе DeepSeek с тремя слоями памяти. Напиши что-нибудь!'
+        });
+        renderChat();
+        renderBranches();
+        updateBranchControlsVisibility();
+        updateStats(null, null, null);
+        renderContext(null);
+        renderMemory();
+        renderPending();
+        renderTask();
+        messageEl.focus();
+        // Долговременная память переживает сброс — перечитаем её с сервера.
+        await loadLongTerm();
+        // Профиль пользователя тоже глобальный — обновим список.
+        await loadProfiles();
+        // Сессия удалена — её инварианты тоже, обновим список.
+        await loadInvariants();
+    }
+
+    // === Обработчики ===
+    sendBtn.addEventListener('click', sendRequest);
+    resetBtn.addEventListener('click', resetChat);
+    ballBtn.addEventListener('click', quickBall);
+    bookBtn.addEventListener('click', quickBook);
+    rateBtn.addEventListener('click', quickRate);
+    pipelineBtn.addEventListener('click', quickPipeline);
+    createBranchBtn.addEventListener('click', createBranches);
+    branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
+    strategyEl.addEventListener('change', updateBranchControlsVisibility);
+    memLayer.addEventListener('change', updateMemoryForm);
+    memSaveBtn.addEventListener('click', saveMemoryFromForm);
+    suggestBtn.addEventListener('click', suggestMemory);
+    profileSaveBtn.addEventListener('click', saveProfile);
+    profileDeleteBtn.addEventListener('click', deleteProfile);
+    profileNewBtn.addEventListener('click', newProfile);
+    profileSelect.addEventListener('change', (e) => activateProfile(e.target.value));
+    profileOpenBtn.addEventListener('click', () => openModal('profileModal'));
+    memoryOpenBtn.addEventListener('click', () => openModal('memoryModal'));
+    taskOpenBtn.addEventListener('click', () => openModal('taskModal'));
+    taskListBtn.addEventListener('click', () => openModal('taskModal'));
+    taskPauseBtn.addEventListener('click', pauseCurrentTask);
+    taskResumeBtn.addEventListener('click', resumeCurrentTask);
+    taskNewBtn.addEventListener('click', createNewTask);
+    invSaveBtn.addEventListener('click', saveInvariant);
+    invNewBtn.addEventListener('click', newInvariant);
+    invariantOpenBtn.addEventListener('click', () => openModal('invariantModal'));
+
+    // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+        ov.addEventListener('click', (e) => {
+            if (e.target === ov) closeModal(ov.id);
+        });
+    });
+    document.querySelectorAll('[data-close]').forEach(btn => {
+        btn.addEventListener('click', () => closeModal(btn.dataset.close));
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.visible').forEach(ov => closeModal(ov.id));
+        }
+    });
+    messageEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendRequest();
+        }
+    });
+
+    // Делегирование кликов по кнопкам памяти
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-action]');
+        if (!el) return;
+        const action = el.dataset.action;
+        if (action === 'delete') deleteMemory(el.dataset.layer, el.dataset.key);
+        else if (action === 'move') moveMemory(el.dataset.key, el.dataset.layer, el.dataset.to);
+        else if (action === 'approve') applySuggestion(parseInt(el.dataset.index, 10));
+        else if (action === 'reject') rejectSuggestion(parseInt(el.dataset.index, 10));
+    });
+
+    // Делегирование кликов по кнопкам задач
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-task-action]');
+        if (!el) return;
+        const action = el.dataset.taskAction;
+        const id = el.dataset.id;
+        if (action === 'select') selectTask(id);
+        else if (action === 'pause') {
+            currentTaskId = id;
+            pauseCurrentTask();
+        } else if (action === 'resume') {
+            currentTaskId = id;
+            resumeCurrentTask();
+        } else if (action === 'delete') deleteTask(id);
+    });
+
+    // Делегирование кликов по кнопкам инвариантов
+    document.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-inv-action]');
+        if (!el) return;
+        const action = el.dataset.invAction;
+        const id = el.dataset.id;
+        if (action === 'toggle') toggleInvariant(id);
+        else if (action === 'edit') editInvariant(id);
+        else if (action === 'delete') deleteInvariant(id);
+    });
+
+    // === Инициализация ===
+    (async function init() {
+        updateBranchControlsVisibility();
+        updateMemoryForm();
+        // Профили — глобальные (не зависят от сессии), загружаем сразу.
+        await loadProfiles();
+        // Инварианты тоже видны сразу (глобальные и привязанные к сущностям).
+        await loadInvariants();
+        if (sessionId) {
+            const restored = await restoreSession(sessionId);
+            if (restored) {
+                renderChat();
+                updateStats(null, null, null);
+                // Долговременная память доступна и без активного диалога.
+                await loadLongTerm();
+                return;
+            }
+            sessionId = null;
+            localStorage.removeItem('agentSessionId');
+        }
+        history.push({
+            role: 'assistant',
+            content: '👋 Привет! Я AI-агент на базе DeepSeek с тремя слоями памяти. Напиши что-нибудь!'
+        });
+        renderChat();
+        renderBranches();
+        updateStats(null, null, null);
+        renderContext(null);
+        renderMemory();
+        renderPending();
+        renderTask();
+        // Показываем долговременную память даже без активного диалога.
+        await loadLongTerm();
+    })();
+</script>
+
+</body>
+</html>
