@@ -164,7 +164,6 @@ class AgentRequest(BaseModel):
     memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
     enable_tools: bool = Field(False, description="Разрешить вызов MCP-инструментов (function calling)")
-    pipeline: bool = Field(False, description="Выполнить цепочку MCP-инструментов через многокруговой цикл _run_tool_loop")
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
 
@@ -563,180 +562,95 @@ def _deepseek_tools(mcp_tools: List[dict]) -> List[dict]:
     return out
 
 
-def _run_tool_turn(provider: AgentProvider, request: AgentRequest, messages: List[dict],
-                   mcp_clients, user_text: str):
-    """Один ход чата с инструментами (двухшаговый function calling).
+def _collect_mcp_tools(mcp_clients):
+    """Собирает инструменты со всех MCP-клиентов и строит реестр маршрутизации.
 
-    Раунд 1 — модель получает список инструментов и может вернуть tool_calls;
-    раунд 2 — после подстановки результатов модель пишет финальный ответ,
-    использующий эти результаты.
+    Возвращает (tools, registry):
+      tools     — список MCP-описаний инструментов (inputSchema → формат DeepSeek);
+      registry  — dict «имя инструмента» -> объект клиента. Ключ задаёт «что
+                  вызвать» (имя инструмента), значение — «куда» (клиент, который
+                  его обслуживает). Имя сервера для трейса берётся из
+                  client.SERVER_NAME.
 
-    Возвращает (content, tool_calls_info, data), где data — данные ПОСЛЕДНЕГО
-    вызова модели (для usage/статистики).
+    При совпадении имени инструмента у РАЗНЫХ клиентов поднимается ValueError:
+    молчаливый «первый выигрывает» скрывает ошибки конфигурации.
     """
-    tool_calls_info: List[dict] = []
-    data: dict = {}
-
-    # Собираем инструменты со всех MCP-клиентов и маппинг имя -> клиент.
-    mcp_tools: List[dict] = []
-    tool_client: dict = {}
+    tools: List[dict] = []
+    registry: dict = {}
     for client in (mcp_clients or []):
+        server = getattr(client, "SERVER_NAME", None) or type(client).__name__
         try:
             client_tools = client.list_tools()
         except Exception as e:
-            logger.warning("MCP-клиент %s недоступен (list_tools): %s", type(client).__name__, e)
+            logger.warning("MCP-клиент %s недоступен (list_tools): %s", server, e)
             continue
         for t in (client_tools or []):
             if not isinstance(t, dict):
                 continue
             name = (t.get("name") or "").strip()
-            if name and name not in tool_client:
-                tool_client[name] = client
-                mcp_tools.append(t)
-    tools = _deepseek_tools(mcp_tools)
-
-    if not tools:
-        data = provider.complete(messages, request, None, user_text)
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return content, tool_calls_info, data
-
-    # Явно подсказываем модели, что доступны инструменты и их нужно использовать
-    # для фактических запросов (курсы валют, гадания), а не отвечать по памяти.
-    tool_names = ", ".join(t["function"]["name"] for t in tools)
-    logger.info("MCP tools доступны модели: %s", tool_names)
-    messages.append({
-        "role": "system",
-        "content": (
-            f"Тебе доступны MCP-инструменты: {tool_names}. "
-            "Когда запрос требует фактических данных (курс валют, например "
-            "'выведи USD/EUR' или 'какой курс евро к доллару', а также гадания), "
-            "обязательно вызывай подходящий инструмент и отвечай на основе его "
-            "результата, а не по памяти."
-        ),
-    })
-
-    # Раунд 1: модель с инструментами.
-    data = provider.complete(messages, request, None, user_text, tools=tools)
-    message = data.get("choices", [{}])[0].get("message", {}) or {}
-    tool_calls = message.get("tool_calls") or []
-    if not tool_calls:
-        return message.get("content", "") or "", tool_calls_info, data
-
-    # Подставляем ассистентский tool_calls и результаты инструментов.
-    messages.append({
-        "role": "assistant",
-        "content": message.get("content"),
-        "tool_calls": tool_calls,
-    })
-    for tc in tool_calls:
-        fn = tc.get("function") or {}
-        name = (fn.get("name") or "").strip()
-        try:
-            arguments = json.loads(fn.get("arguments") or "{}")
-        except (ValueError, TypeError):
-            arguments = {}
-        if not isinstance(arguments, dict):
-            arguments = {}
-
-        client = tool_client.get(name)
-        if client is None:
-            text = f"Инструмент '{name}' недоступен."
-            ok = False
-            error = "нет клиента для инструмента"
-        else:
-            try:
-                logger.info("Вызов MCP-инструмента '%s' args=%s", name, arguments)
-                res = client.call_tool(name, arguments)
-                if isinstance(res, dict):
-                    text = res.get("text", "")
-                    ok = bool(res.get("ok", False))
-                    error = res.get("error", "")
-                else:
-                    text = str(res)
-                    ok = False
-                    error = ""
-            except Exception as e:
-                text = f"Ошибка вызова инструмента: {e}"
-                ok = False
-                error = str(e)
-
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tc.get("id", ""),
-            "content": text,
-        })
-        tool_calls_info.append({
-            "name": name,
-            "arguments": arguments,
-            "result": text,
-            "ok": ok,
-            "error": error,
-        })
-
-    # Раунд 2: финальный ответ, использующий результаты инструментов.
-    data = provider.complete(messages, request, None, user_text)
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return content, tool_calls_info, data
+            if not name:
+                continue
+            if name in registry:
+                if registry[name] is client:
+                    continue  # дубль от того же клиента — игнорируем
+                existing_server = getattr(registry[name], "SERVER_NAME", None) \
+                    or type(registry[name]).__name__
+                raise ValueError(
+                    f"Конфликт имён MCP-инструмента '{name}': уже зарегистрирован "
+                    f"на сервере '{existing_server}', повторно объявлен "
+                    f"на сервере '{server}'"
+                )
+            registry[name] = client
+            tools.append(t)
+    return tools, registry
 
 
 def _run_tool_loop(provider: AgentProvider, request: AgentRequest, messages: List[dict],
                    mcp_clients, user_text: str, max_cycles: int = MAX_TOOL_CYCLES):
-    """Многокруговой цикл вызова инструментов (цепочка search → summarize → save_to_file).
+    """Многокруговой цикл вызова инструментов (нативный function calling DeepSeek).
 
-    В отличие от _run_tool_turn (ровно один раунд вызовов + финальный ответ), здесь
-    модель может вызывать инструменты ПОСЛЕДОВАТЕЛЬНО: результат каждого раунда
-    подставляется обратно в диалог, и модель снова решает, вызвать ли следующий
-    инструмент. Так один инструмент передаёт свои данные следующему (search →
-    summarize → save_to_file).
+    Модель получает инструменты со всех MCP-серверов и вызывает их последовательно:
+    результат каждого раунда подставляется обратно в диалог, и модель снова решает,
+    вызвать ли следующий инструмент. Так данные одного инструмента передаются
+    следующему, в том числе между разными серверами (search → summarize →
+    save_to_file; get_rate → magic_8_ball и т.п.).
 
-    Цикл завершается, когда модель возвращает ответ без tool_calls (финальный ответ),
-    либо при достижении max_cycles (защита от зацикливания).
+    Цикл завершается, когда модель возвращает ответ без tool_calls (финальный ответ).
+    Если лимит max_cycles исчерпан раньше — делается финальный вызов без инструментов,
+    чтобы гарантированно получить текстовый ответ.
+
+    max_cycles=1 — частный случай «один раунд вызовов + финальный ответ».
 
     Возвращает (content, tool_calls_info, data), где tool_calls_info — ПОЛНЫЙ трейс
-    всех вызовов инструментов по раундам (для проверки передачи данных).
+    вызовов (имя, сервер, аргументы, результат, статус).
     """
     tool_calls_info: List[dict] = []
     data: dict = {}
 
-    # Собираем инструменты со всех MCP-клиентов и маппинг имя -> клиент.
-    mcp_tools: List[dict] = []
-    tool_client: dict = {}
-    for client in (mcp_clients or []):
-        try:
-            client_tools = client.list_tools()
-        except Exception as e:
-            logger.warning("MCP-клиент %s недоступен (list_tools): %s", type(client).__name__, e)
-            continue
-        for t in (client_tools or []):
-            if not isinstance(t, dict):
-                continue
-            name = (t.get("name") or "").strip()
-            if name and name not in tool_client:
-                tool_client[name] = client
-                mcp_tools.append(t)
-    tools = _deepseek_tools(mcp_tools)
-
-    if not tools:
+    tools, registry = _collect_mcp_tools(mcp_clients)
+    deepseek_tools = _deepseek_tools(tools)
+    if not deepseek_tools:
         data = provider.complete(messages, request, None, user_text)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         return content, tool_calls_info, data
 
-    tool_names = ", ".join(t["function"]["name"] for t in tools)
-    logger.info("MCP pipeline loop: доступны инструменты %s (max_cycles=%s)", tool_names, max_cycles)
+    tool_names = ", ".join(t["function"]["name"] for t in deepseek_tools)
+    logger.info("MCP tools доступны модели: %s (max_cycles=%s)", tool_names, max_cycles)
     messages.append({
         "role": "system",
         "content": (
             f"Тебе доступны MCP-инструменты: {tool_names}. "
-            "Для запросов вида «найди информацию и сохрани сводку» выполни цепочку "
-            "search → summarize → save_to_file: результат каждого инструмента передавай "
-            "в аргументы следующего, не выдумывай данные. Если достаточно одного "
-            "инструмента — вызови его и ответь на основе его результата."
+            "Когда запрос требует фактических данных (курсы валют, гадания, поиск, "
+            "суммирование, сохранение файла и т.п.), вызывай подходящий инструмент "
+            "и отвечай на основе его результата, а не по памяти. Если нужно несколько "
+            "шагов — вызывай инструменты последовательно, передавая результат "
+            "предыдущего в аргументы следующего. Когда данных достаточно, дай финальный ответ."
         ),
     })
 
     cycles = 0
     while cycles < max_cycles:
-        data = provider.complete(messages, request, None, user_text, tools=tools)
+        data = provider.complete(messages, request, None, user_text, tools=deepseek_tools)
         message = data.get("choices", [{}])[0].get("message", {}) or {}
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
@@ -759,14 +673,15 @@ def _run_tool_loop(provider: AgentProvider, request: AgentRequest, messages: Lis
             if not isinstance(arguments, dict):
                 arguments = {}
 
-            client = tool_client.get(name)
+            client = registry.get(name)
+            server = getattr(client, "SERVER_NAME", None) if client else None
             if client is None:
                 text = f"Инструмент '{name}' недоступен."
                 ok = False
                 error = "нет клиента для инструмента"
             else:
                 try:
-                    logger.info("Вызов MCP-инструмента '%s' args=%s", name, arguments)
+                    logger.info("Вызов MCP-инструмента '%s' (сервер %s) args=%s", name, server, arguments)
                     res = client.call_tool(name, arguments)
                     if isinstance(res, dict):
                         text = res.get("text", "")
@@ -788,6 +703,7 @@ def _run_tool_loop(provider: AgentProvider, request: AgentRequest, messages: Lis
             })
             tool_calls_info.append({
                 "name": name,
+                "server": server,
                 "arguments": arguments,
                 "result": text,
                 "ok": ok,
@@ -795,8 +711,9 @@ def _run_tool_loop(provider: AgentProvider, request: AgentRequest, messages: Lis
             })
         cycles += 1
 
-    # Лимит циклов исчерпан, а финального ответа так и не было.
-    logger.warning("MCP pipeline loop достиг лимита циклов %s", max_cycles)
+    # Лимит циклов исчерпан, а финального ответа так и не было: добиваем вызовом без tools.
+    logger.warning("MCP tool loop достиг лимита циклов %s", max_cycles)
+    data = provider.complete(messages, request, None, user_text)
     content = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
     return content, tool_calls_info, data
 
@@ -1240,14 +1157,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 )
             else:
                 if tools_active:
-                    if getattr(request, "pipeline", False):
-                        content, tool_calls_info, data = _run_tool_loop(
-                            provider, request, request_messages, clients, user_text
-                        )
-                    else:
-                        content, tool_calls_info, data = _run_tool_turn(
-                            provider, request, request_messages, clients, user_text
-                        )
+                    content, tool_calls_info, data = _run_tool_loop(
+                        provider, request, request_messages, clients, user_text
+                    )
                 else:
                     data = provider.complete(request_messages, request, None, user_text)
                     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")

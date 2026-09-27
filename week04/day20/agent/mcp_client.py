@@ -38,6 +38,7 @@ class McpClient:
     """
 
     CLIENT_NAME = "agent-mcp-client"
+    SERVER_NAME = "mcp"  # имя MCP-сервера, к которому подключается клиент (переопределяется в наследниках)
 
     def __init__(self, base_url: str = None, timeout: float = None):
         self.base_url = (base_url or MCP_BASE_URL).rstrip("/")
@@ -195,6 +196,7 @@ class FortuneMcpClient(McpClient):
     """Клиент инструментов гадания (magic_8_ball, bibliomancy)."""
 
     CLIENT_NAME = "agent-fortune-client"
+    SERVER_NAME = "fortune-telling-mcp"
 
     def __init__(self, base_url: str = None, timeout: float = None):
         super().__init__(base_url=base_url or MCP_BASE_URL, timeout=timeout)
@@ -204,6 +206,7 @@ class CurrencyMcpClient(McpClient):
     """Клиент инструментов валют (get_rate, get_summary)."""
 
     CLIENT_NAME = "agent-currency-client"
+    SERVER_NAME = "currency-mcp"
 
     def __init__(self, base_url: str = None, timeout: float = None):
         super().__init__(base_url=base_url or CURRENCY_MCP_BASE_URL, timeout=timeout)
@@ -217,6 +220,7 @@ class PipelineMcpClient(McpClient):
     """
 
     CLIENT_NAME = "agent-pipeline-client"
+    SERVER_NAME = "pipeline-mcp"
 
     def __init__(self, base_url: str = None, timeout: float = None):
         super().__init__(

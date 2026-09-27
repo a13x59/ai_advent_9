@@ -1222,6 +1222,12 @@
             font-weight: 700;
         }
 
+        .tool-server {
+            color: #9aa7bd;
+            font-weight: 400;
+            opacity: 0.8;
+        }
+
         .tool-args {
             color: #9aa7bd;
             font-size: 12px;
@@ -1397,11 +1403,6 @@
             <label class="checkbox-row">
                 <input type="checkbox" id="enable_tools" checked>
                 🧰 MCP-инструменты (гадание + валюты + пайплайн)
-            </label>
-
-            <label class="checkbox-row">
-                <input type="checkbox" id="pipeline">
-                🔗 Пайплайн (search → summarize → save_to_file)
             </label>
 
             <div class="branch-controls" id="branchControls">
@@ -1664,7 +1665,6 @@
     const maxTokensEl = document.getElementById('max_tokens');
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
-    const pipelineEl = document.getElementById('pipeline');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
     const rateBtn = document.getElementById('rateBtn');
@@ -1839,7 +1839,7 @@
             chainDiv.innerHTML = `
         <div class="avatar">🔗</div>
         <div class="bubble">
-          <div class="tool-chip">Пайплайн: ${calls.map(c => escapeHtml(c.name)).join(' → ')}</div>
+          <div class="tool-chip">Цепочка: ${calls.map(c => escapeHtml(c.name)).join(' → ')}</div>
         </div>
       `;
             chatMessages.appendChild(chainDiv);
@@ -1855,7 +1855,7 @@
             div.innerHTML = `
         <div class="avatar">🔮</div>
         <div class="bubble">
-          <div class="tool-chip">${step}${status} инструмент: ${escapeHtml(c.name)}</div>
+          <div class="tool-chip">${step}${status} ${escapeHtml(c.name)}${c.server ? ` <span class="tool-server">${escapeHtml(c.server)}</span>` : ''}</div>
           ${args ? `<div class="tool-args">вход: ${escapeHtml(args)}</div>` : ''}
           ${text ? `<div class="tool-result">${escapeHtml(text)}</div>` : ''}
         </div>
@@ -1870,7 +1870,6 @@
         const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
         if (q === null || !q.trim()) return;
         enableToolsEl.checked = true;
-        pipelineEl.checked = false;
         messageEl.value = `Погадай на шаре: ${q.trim()}`;
         messageEl.focus();
         sendRequest();
@@ -1880,7 +1879,6 @@
         const q = prompt('Вопрос для гадания по книге:', 'Что ждет моего друга Колю?');
         if (q === null || !q.trim()) return;
         enableToolsEl.checked = true;
-        pipelineEl.checked = false;
         messageEl.value = `Погадай по книге («Алиса в Стране чудес»): ${q.trim()}`;
         messageEl.focus();
         sendRequest();
@@ -1888,7 +1886,6 @@
 
     function quickRate() {
         enableToolsEl.checked = true;
-        pipelineEl.checked = false;
         messageEl.value = 'Выведи текущий курс EUR/USD';
         messageEl.focus();
         sendRequest();
@@ -1896,7 +1893,6 @@
 
     function quickPipeline() {
         enableToolsEl.checked = true;
-        pipelineEl.checked = true;
         const topic = prompt('Тема для поиска и сводки:', 'DeepSeek');
         if (topic === null || !topic.trim()) return;
         messageEl.value = `Найди информацию про ${topic.trim()} и сохрани краткую сводку в файл summary.txt`;
@@ -2670,7 +2666,6 @@
             max_tokens: maxTokens,
             auto_suggest_memory: autoSuggestEl.checked,
             enable_tools: enableToolsEl.checked,
-            pipeline: pipelineEl.checked,
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
