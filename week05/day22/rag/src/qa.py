@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from .retrieval import retrieve
 
 # Единый источник ключа — корневой .env (day22/.env), не зависит от рабочей папки.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
