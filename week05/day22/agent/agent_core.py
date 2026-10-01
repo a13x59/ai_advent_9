@@ -164,6 +164,7 @@ class AgentRequest(BaseModel):
     memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
     enable_tools: bool = Field(False, description="Разрешить вызов MCP-инструментов (function calling)")
+    rag: bool = Field(False, description="Режим RAG: дополнить запрос релевантными чанками из базы знаний")
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
 
@@ -802,6 +803,22 @@ def build_memory_system_block(working, long_term, long_term_kinds=None) -> str:
     return "\n\n".join(parts)
 
 
+def build_rag_system_block(chunks) -> str:
+    """Формирует system-блок с найденными чанками (режим RAG)."""
+    lines = [
+        "КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ (RAG) — используй его как первоисточник для ответа:",
+        "Отвечай по приведённым фрагментам; не добавляй сведений, которых в них нет. "
+        "В конце перечисли использованные источники.",
+    ]
+    for i, c in enumerate(chunks or [], 1):
+        title = c.get("title") or ""
+        section = c.get("section") or ""
+        src = c.get("source") or ""
+        header = f"[{i}] {title}" + (f" — {section}" if section else "")
+        lines.append(f"\n{header}\nИсточник: {src}\n{c.get('text', '')}")
+    return "\n".join(lines)
+
+
 def build_profile_system_block(profile) -> str:
     if not profile:
         return ""
@@ -952,7 +969,7 @@ def _resolve_task(store: HistoryStorage, session_id: str, task_id: Optional[str]
 # Фабрика FastAPI-приложения
 # ------------------------------------------------------------
 def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
-               mcp_client=None, mcp_clients=None) -> FastAPI:
+               mcp_client=None, mcp_clients=None, rag_retriever=None) -> FastAPI:
     """Собирает FastAPI-приложение со всеми эндпоинтами на едином пайплайне.
 
     provider    — реальный (DeepSeek) или детерминированный (Mock) провайдер;
@@ -960,6 +977,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
     mcp_client  — один клиент MCP-инструментов (list_tools/call_tool);
     mcp_clients — список клиентов MCP-инструментов (если сервисов несколько);
                   None/пусто = без инструментов.
+    rag_retriever — объект с методом retrieve(query) -> list[chunk]; при
+                  request.rag=True найденные чанки добавляются в контекст.
+                  None = RAG отключён (retrieve не вызывается).
     """
     store = store or default_storage
     clients = _normalize_mcp_clients(mcp_client, mcp_clients)
@@ -1134,6 +1154,25 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             raw_context_tokens = estimate_messages_tokens(conversation)
             context_tokens = estimate_messages_tokens(request_messages)
 
+            # 4.1 RAG: дополнить контекст найденными чанками (режим «с RAG»).
+            rag_context = None
+            if request.rag and rag_retriever is not None and user_text:
+                try:
+                    rag_chunks = rag_retriever.retrieve(user_text)
+                    if rag_chunks:
+                        rag_block = build_rag_system_block(rag_chunks)
+                        request_messages.insert(0, {"role": "system", "content": rag_block})
+                        context_tokens += estimate_tokens(rag_block)
+                        rag_context = {
+                            "chunks": rag_chunks,
+                            "sources": list(dict.fromkeys(c.get("source") for c in rag_chunks)),
+                        }
+                    else:
+                        rag_context = {"chunks": [], "sources": []}
+                except Exception as e:
+                    logger.warning("Ошибка RAG-ретрива: %s", e)
+                    rag_context = {"error": str(e)}
+
             # 5. Генерация + переход конечного автомата.
             tools_active = _tools_enabled(request, clients)
             tool_calls_info: List[dict] = []
@@ -1239,6 +1278,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 "violated_invariant": violated_invariant,
                 "tool_calls": tool_calls_info,
                 "tools_active": tools_active,
+                "rag_context": rag_context,
                 "pending_memory": pending_memory,
                 "memory_ops_applied": memory_ops_applied,
                 "duration": round(duration, 3),

@@ -12,6 +12,12 @@ import os
 from typing import List, Optional
 
 import requests
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Единый источник ключа — корневой .env (day22/.env), не зависит от рабочей папки.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from agent_core import (
     AgentProvider,
@@ -31,6 +37,7 @@ from agent_core import (
     INVARIANT_CHECK_MAX_TOKENS,
 )
 from mcp_client import FortuneMcpClient, CurrencyMcpClient, PipelineMcpClient
+from rag_client import RagClient
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-...")
@@ -140,6 +147,7 @@ class DeepSeekProvider(AgentProvider):
 app = create_app(
     DeepSeekProvider(),
     mcp_clients=[FortuneMcpClient(), CurrencyMcpClient(), PipelineMcpClient()],
+    rag_retriever=RagClient(),
 )
 
 

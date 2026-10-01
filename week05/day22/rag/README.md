@@ -100,3 +100,44 @@ python -m src.pipeline list
 fixed даёт равномерные чанки (но без `section` и с перекрытием), structural —
 смысловые чанки по разделам с заполненным `section`, но с большой дисперсией
 длины.
+
+## RAG-ответы (вопрос → чанки → объединение → LLM)
+
+Поверх индекса реализована цепочка генерации ответа:
+
+- `src/retrieval.py` — `retrieve(query, strategy, top_k)`: поиск релевантных
+  чанков (переиспользует `load_index` + `Embedder`).
+- `src/qa.py` — `answer_plain(question)` (без RAG) и `answer_rag(question)`
+  (ретрив → промпт с контекстом → DeepSeek). Требует `DEEPSEEK_API_KEY`.
+
+```bash
+python -m src.compare --strategy structural --top-k 5
+```
+
+`compare.py` прогоняет 10 контрольных вопросов из `data/golden.json` (у каждого —
+`question`, `expectation`, `sources`, `relevant`) и для каждого генерирует два
+ответа. Затем `judge.py` (LLM-as-judge) оценивает каждый ответ 0–2 против
+`expectation` и пишет:
+
+- `reports/rag_answers.json` — сырые ответы и найденные чанки;
+- `reports/rag_comparison.json` — те же данные с оценками;
+- `reports/rag_comparison.md` — сводная таблица и детали.
+
+Оценку можно пересчитать отдельно: `python -m src.judge`.
+
+## HTTP-сервис ретрива
+
+Для агента (`agent/rag_client.py`) ретрив вынесен в отдельный сервис, чтобы не
+тянуть faiss/sentence-transformers в venv агента:
+
+```bash
+uvicorn src.server:app --host 0.0.0.0 --port 8891
+```
+
+- `GET /health` — статус;
+- `POST /retrieve` — `{"query": "...", "strategy": "structural", "top_k": 5}`
+  → `{"chunks": [...]}`.
+
+Агент включает режим RAG флагом `rag: true` в теле `/agent` (или чекбоксом
+«📚 RAG» на веб-странице); найденные чанки подставляются в контекст, а в ответе
+приходит поле `rag_context` с использованными источниками.

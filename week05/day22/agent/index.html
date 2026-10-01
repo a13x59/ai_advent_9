@@ -1405,6 +1405,11 @@
                 🧰 MCP-инструменты (гадание + валюты + пайплайн)
             </label>
 
+            <label class="checkbox-row">
+                <input type="checkbox" id="rag">
+                📚 RAG — отвечать по базе знаний
+            </label>
+
             <div class="branch-controls" id="branchControls">
                 <div class="branch-row">
                     <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
@@ -1665,6 +1670,7 @@
     const maxTokensEl = document.getElementById('max_tokens');
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
+    const ragEl = document.getElementById('rag');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
     const rateBtn = document.getElementById('rateBtn');
@@ -1862,6 +1868,38 @@
       `;
             chatMessages.appendChild(div);
         });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Показываем найденные чанки базы знаний (режим RAG), не входят в history.
+    function renderRagContext(ragContext) {
+        if (!ragContext) return;
+        if (ragContext.error) {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = `<div class="avatar">📚</div><div class="bubble"><div class="tool-chip">⚠️ RAG недоступен: ${escapeHtml(ragContext.error)}</div></div>`;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return;
+        }
+        const chunks = ragContext.chunks || [];
+        if (!chunks.length) return;
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        const items = chunks.map(c => {
+            const score = c.score != null ? Number(c.score).toFixed(3) : '';
+            const title = escapeHtml(c.title || '');
+            const section = c.section ? ' · ' + escapeHtml(c.section) : '';
+            return `<li><span class="tool-server">${escapeHtml(c.source)}</span> — ${title}${section}${score ? ` <span class="tool-step">(score ${score})</span>` : ''}</li>`;
+        }).join('');
+        div.innerHTML = `
+        <div class="avatar">📚</div>
+        <div class="bubble">
+          <div class="tool-chip">RAG — источники из базы знаний (${chunks.length})</div>
+          <ul style="margin:6px 0 0 18px;font-size:12px;color:#9aa4b2;">${items}</ul>
+        </div>
+      `;
+        chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
@@ -2666,6 +2704,7 @@
             max_tokens: maxTokens,
             auto_suggest_memory: autoSuggestEl.checked,
             enable_tools: enableToolsEl.checked,
+            rag: ragEl.checked,
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;
@@ -2696,6 +2735,7 @@
             }
             renderChat();
             renderToolCalls(data.tool_calls || []);
+            renderRagContext(data.rag_context);
 
             memory = data.memory || {working: [], long_term: []};
             pendingMemory = data.pending_memory || [];
