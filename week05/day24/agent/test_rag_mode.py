@@ -41,6 +41,20 @@ class FakeRetriever:
         }]
 
 
+class WeakRetriever:
+    """Ретривер, который отвечает «слабый контекст» (ниже порога)."""
+
+    def retrieve(self, query, strategy="structural", top_k=5, mode="baseline",
+                 top_k_candidates=None, min_score=None):
+        return {
+            "chunks": [],
+            "below_relevance": True,
+            "max_score": 0.3,
+            "relevance_threshold": 0.5,
+            "mode": "baseline",
+        }
+
+
 @pytest.fixture()
 def client():
     fd, path = tempfile.mkstemp(prefix="rag_", suffix=".db")
@@ -73,6 +87,8 @@ def test_rag_mode_injects_context_and_reports_sources(client):
     )
     assert "КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ (RAG)" in system_text
     assert "word2vec — модель векторного представления слов." in system_text
+    assert "chunk_id: c1" in system_text
+    assert "## Цитаты" in system_text
 
 
 def test_rag_off_does_not_retrieve(client):
@@ -80,5 +96,31 @@ def test_rag_off_does_not_retrieve(client):
     assert r["rag_context"] is None
     system_text = "\n".join(
         m["content"] for m in client.provider.last_messages if m["role"] == "system"
+    )
+    assert "КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ (RAG)" not in system_text
+
+
+@pytest.fixture()
+def weak_client():
+    fd, path = tempfile.mkstemp(prefix="rag_weak_", suffix=".db")
+    os.close(fd)
+    provider = RecordingProvider()
+    app = create_app(provider, HistoryStorage(path), rag_retriever=WeakRetriever())
+    with TestClient(app) as c:
+        c.provider = provider
+        yield c
+    os.remove(path)
+
+
+def test_rag_abstain_on_weak_context(weak_client):
+    r = _post(weak_client, "Какой сейчас курс доллара?", rag=True)
+
+    assert r["rag_abstained"] is True
+    assert r["rag_context"]["below_relevance"] is True
+    assert "не знаю" in r["response"].lower()
+    assert "уточн" in r["response"].lower()
+    # Контекст не должен подставляться при отказе.
+    system_text = "\n".join(
+        m["content"] for m in weak_client.provider.last_messages if m["role"] == "system"
     )
     assert "КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ (RAG)" not in system_text

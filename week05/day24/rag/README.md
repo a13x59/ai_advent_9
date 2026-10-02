@@ -184,7 +184,8 @@ uvicorn src.server:app --host 0.0.0.0 --port 8891
 - `POST /retrieve` — `{"query": "...", "strategy": "structural", "top_k": 5,
   "top_k_candidates": 20, "min_score": 0.5, "mode": "baseline"}` →
   `{"chunks": [...], "mode": ..., "candidates": ..., "kept": ...,
-  "dropped": [...], "rewritten_query": ...}`. `mode` ∈
+  "dropped": [...], "rewritten_query": ..., "max_score": ...,
+  "below_relevance": ..., "relevance_threshold": ...}`. `mode` ∈
   `baseline|rewrite|filter|rewrite+filter|rerank`; режимы `rewrite*`
   переформулируют запрос через DeepSeek.
 
@@ -194,4 +195,56 @@ uvicorn src.server:app --host 0.0.0.0 --port 8891
 управляет группа «📚 Параметры RAG (реранкинг и фильтрация)». Найденные чанки
 подставляются в контекст, а в ответе приходит поле `rag_context` с
 использованными источниками и метаданными второго этапа (mode, kept, dropped,
-rewritten_query).
+rewritten_query, max_score, below_relevance).
+
+## Цитаты, источники и режим «не знаю» (День 24)
+
+Модель обязана возвращать ответ + список источников + дословные цитаты, а при
+слабом контексте — детерминированно отвечать «не знаю» и просить уточнение.
+
+### Что изменилось
+
+- `src/qa.py` — промпт `build_rag_prompt` теперь передаёт каждому чанку
+  `source`/`section`/`chunk_id` и требует строгий трёхсекционный формат ответа:
+
+  ```markdown
+  ## Ответ
+  <краткий ответ по контексту>
+
+  ## Источники
+  - [n] source: <путь> | section: <раздел> | chunk_id: <id>
+
+  ## Цитаты
+  - [n] «<дословный фрагмент из чанка>»
+  ```
+
+- `src/config.py` — новый порог `RELEVANCE_THRESHOLD` (по умолчанию `0.5`),
+  отдельный от `MIN_SCORE`. Это гейт на **весь ответ**, а не на отдельные чанки.
+- `src/retrieval.py` — `retrieve_with_mode` возвращает `max_score` (лучший
+  cosine-сходство итоговых чанков) и `below_relevance` (ниже ли порога или
+  чанков нет).
+- `src/qa.py::answer_rag` — если `below_relevance` или нет чанков, возвращает
+  детерминированный ответ «не знаю» + просьбу уточнить (`abstained: true`) **без
+  вызова LLM**.
+- `src/citations.py` — проверка на 10 контрольных вопросах: парсит секции
+  «Источники»/«Цитаты», детерминированно проверяет, что каждая цитата —
+  подстрока найденного чанка, а источник содержит `chunk_id`; LLM-judge
+  (`src/judge.py::judge_groundedness`) оценивает, совпадает ли смысл ответа с
+  цитатами.
+- `data/weak.json` — слаборелевантные вопросы для проверки гейта «не знаю».
+
+### Команды
+
+```bash
+# проверка 10 контрольных вопросов + слабых вопросов (гейт «не знаю»)
+python -m src.citations                      # → reports/citations_report.md|json
+python -m src.citations --mode rerank --top-k 5
+python -m src.citations --no-judge           # только детерминированные проверки
+```
+
+### Интеграция с агентом
+
+Агент (`agent/agent_core.py`) в режиме RAG подставляет тот же формат
+(Ответ/Источники/Цитаты с `chunk_id`) и использует флаг `below_relevance` из
+RAG-сервиса: при слабом контексте отвечает «не знаю» детерминированно, не
+вызывая модель, и кладёт это в `rag_context`/`rag_abstained`.

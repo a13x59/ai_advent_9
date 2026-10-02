@@ -60,6 +60,44 @@ def judge_answer(question: str, expectation: str, answer: str) -> dict:
     return {"score": score, "rationale": str(obj.get("rationale") or "")}
 
 
+GROUNDED_PROMPT = """Оцени, соответствует ли смысл ответа ассистента приведённым цитатам из базы знаний.
+
+Вопрос: {question}
+
+Ответ ассистента (раздел «## Ответ»):
+{answer}
+
+Цитаты (дословные фрагменты из найденных чанков):
+{citations}
+
+Критерии (score):
+- 2 — ответ полностью опирается на цитаты: все ключевые утверждения подтверждаются цитатами, утверждений вне цитат нет;
+- 1 — ответ в основном опирается на цитаты, но есть незначительные отступления или детали, не подтверждённые цитатами;
+- 0 — ответ противоречит цитатам либо в основном не подтверждается ими.
+
+Верни СТРОГО JSON-объект вида {{"score": <0|1|2>, "rationale": "<краткое обоснование>"}}.
+"""
+
+
+def judge_groundedness(question: str, answer: str, citations: str) -> dict:
+    """LLM-judge: насколько смысл ответа соответствует дословным цитатам."""
+    prompt = GROUNDED_PROMPT.format(question=question, answer=answer, citations=citations)
+    raw = call_llm(
+        [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": prompt}],
+        temperature=0.0, max_tokens=256,
+    )
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        obj = json.loads(m.group(0)) if m else {}
+    score = obj.get("score", 0)
+    if isinstance(score, str) and score.strip().isdigit():
+        score = int(score.strip())
+    score = max(0, min(2, int(score)))
+    return {"score": score, "rationale": str(obj.get("rationale") or "")}
+
+
 def _winner(plain: int, rag: int) -> str:
     if rag > plain:
         return "rag"

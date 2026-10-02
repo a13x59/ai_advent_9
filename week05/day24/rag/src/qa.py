@@ -25,8 +25,11 @@ DEFAULT_MODEL = os.environ.get("RAG_LLM_MODEL", "deepseek-chat")
 
 PLAIN_SYSTEM = "Ты — ассистент, отвечаешь кратко и по существу."
 RAG_SYSTEM = (
-    "Ты — ассистент, отвечающий на основе предоставленного контекста из базы знаний. "
-    "Отвечай строго по контексту."
+    "Ты — ассистент, отвечающий строго на основе предоставленного контекста из "
+    "базы знаний. Следуй обязательному формату ответа (секции «Ответ», «Источники», "
+    "«Цитаты»). Каждое утверждение ответа помечай ссылкой [n] и подтверждай дословной "
+    "цитатой; источники указывай с source, section и chunk_id. Без дословной цитаты "
+    "утверждение писать нельзя."
 )
 
 
@@ -50,7 +53,13 @@ def call_llm(messages: list[dict], temperature: float = 0.0,
 
 
 def build_rag_prompt(question: str, chunks: list[dict]) -> str:
-    """Объединяет вопрос и найденные чанки в один промпт для LLM."""
+    """Объединяет вопрос и найденные чанки в один промпт для LLM.
+
+    Каждый чанк получает явные метаданные source / section / chunk_id, а сам
+    промпт требует строгий трёхсекционный формат ответа (Ответ / Источники /
+    Цитаты) — это позволяет детерминированно проверять наличие источников и
+    дословных цитат.
+    """
     if not chunks:
         context = "(релевантные фрагменты не найдены)"
     else:
@@ -59,19 +68,51 @@ def build_rag_prompt(question: str, chunks: list[dict]) -> str:
             title = c.get("title") or ""
             section = c.get("section") or ""
             src = c.get("source") or ""
+            cid = c.get("chunk_id") or ""
             header = f"[{i}] {title}" + (f" — {section}" if section else "")
-            blocks.append(f"{header}\nИсточник: {src}\n{c.get('text', '')}")
+            blocks.append(
+                f"{header}\nИсточник: {src}\nchunk_id: {cid}\n{c.get('text', '')}"
+            )
         context = "\n\n".join(blocks)
 
     return (
         "Ответь на вопрос пользователя, используя ТОЛЬКО приведённый ниже контекст "
         "(фрагменты из базы знаний).\n"
+        "\n"
+        "ФОРМАТ ОТВЕТА — строго по шаблону (три секции):\n"
+        "\n"
+        "## Ответ\n"
+        "<краткий ответ по контексту; каждое утверждение заканчивай ссылкой [n]>\n"
+        "\n"
+        "## Источники\n"
+        "- [n] source: <путь> | section: <раздел> | chunk_id: <id>\n"
+        "(по одной строке на каждый использованный фрагмент)\n"
+        "\n"
+        "## Цитаты\n"
+        "- [n] «<дословный фрагмент из соответствующего чанка>»\n"
+        "(по цитате на каждое фактическое утверждение из «Ответ»)\n"
+        "\n"
         "Правила:\n"
-        "- Отвечай строго по контексту; не добавляй сведений, которых в нём нет.\n"
-        "- В конце перечисли использованные источники в виде [n] (по номерам фрагментов).\n"
-        "- Если в контексте нет ответа на вопрос — так и скажи.\n\n"
+        "- Отвечай только на основе контекста; не добавляй сведений, которых в нём нет.\n"
+        "- Каждое утверждение в «Ответ» обязательно помечай ссылкой [n] на фрагмент контекста.\n"
+        "- Любое утверждение без дословной цитаты недопустимо: либо процитируй его, либо убери из ответа.\n"
+        "- В «Цитаты» приведи ДОСЛОВНЫЙ фрагмент для каждого утверждения из «Ответ» (не пересказ).\n"
+        "- Номер [n] должен совпадать с номером фрагмента в контексте.\n"
+        "- В «Источники» указывай source, section и chunk_id именно из заголовка фрагмента.\n"
+        "- Если в контексте нет ответа на вопрос — так и скажи и попроси уточнить вопрос.\n"
+        "\n"
         f"Контекст:\n{context}\n\n"
         f"Вопрос: {question}"
+    )
+
+
+def build_abstain_answer(question: str, max_score: float | None = None) -> str:
+    """Детерминированный ответ «не знаю» при слабом контексте (без вызова LLM)."""
+    return (
+        "## Ответ\n"
+        "Я не знаю ответа на этот вопрос — в базе знаний не нашлось достаточно "
+        "релевантной информации.\n\n"
+        "Пожалуйста, уточните вопрос или переформулируйте его."
     )
 
 
@@ -121,6 +162,25 @@ def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
         min_score=min_score, mode=mode, embedder=embedder,
     )
     chunks = result["chunks"]
+    below_relevance = bool(result.get("below_relevance"))
+
+    # Детерминированный гейт «не знаю»: слабый контекст → отказ без вызова LLM.
+    if below_relevance or not chunks:
+        return {
+            "answer": build_abstain_answer(question, max_score=result.get("max_score")),
+            "chunks": chunks,
+            "strategy": strategy,
+            "top_k": top_k,
+            "mode": mode,
+            "rewritten_query": rewritten,
+            "query_used": query,
+            "candidates": result.get("candidates"),
+            "kept": result.get("kept"),
+            "dropped": result.get("dropped", []),
+            "max_score": result.get("max_score"),
+            "below_relevance": below_relevance,
+            "abstained": True,
+        }
 
     # В промпт всегда идёт ИСХОДНЫЙ вопрос пользователя; переформулировка
     # используется только для поиска.
@@ -141,4 +201,7 @@ def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
         "candidates": result.get("candidates"),
         "kept": result.get("kept"),
         "dropped": result.get("dropped", []),
+        "max_score": result.get("max_score"),
+        "below_relevance": below_relevance,
+        "abstained": False,
     }

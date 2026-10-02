@@ -103,6 +103,27 @@ def retrieve(query: str, strategy: str = "structural", top_k: int = 5,
     return chunks
 
 
+def _chunk_cosine(c: dict) -> float:
+    """Cosine-сходство чанка независимо от режима.
+
+    В baseline/filter это поле `score`; в rerank поле `score` перезаписано
+    fusion-значением, а исходный cosine сохранён в `cosine_score`.
+    """
+    if "cosine_score" in c:
+        return float(c["cosine_score"])
+    return float(c.get("score", 0.0))
+
+
+def _relevance_gate(chunks: list[dict]) -> tuple[float, bool]:
+    """Возвращает (max cosine-score, ниже ли он порога отказа).
+
+    Порог — config.RELEVANCE_THRESHOLD; гейт срабатывает и при пустом списке.
+    """
+    max_score = max((_chunk_cosine(c) for c in chunks), default=0.0)
+    below = (not chunks) or (max_score < config.RELEVANCE_THRESHOLD)
+    return round(max_score, 4), bool(below)
+
+
 # --------------------------------------------------------------------------- #
 # Второй этап: фильтр и реранкинг
 # --------------------------------------------------------------------------- #
@@ -202,9 +223,12 @@ def retrieve_with_mode(query: str, strategy: str = "structural", top_k: int | No
 
     if post is None:
         _i, _r, _q, chunks = _search_raw(query, strategy, top_k, embedder, index_dir)
+        max_score, below = _relevance_gate(chunks)
         return {
             "mode": mode, "query": query, "chunks": chunks,
             "candidates": len(chunks), "kept": len(chunks), "dropped": [],
+            "max_score": max_score, "below_relevance": below,
+            "relevance_threshold": config.RELEVANCE_THRESHOLD,
         }
 
     index, _records, qvec, candidates = _search_raw(
@@ -227,4 +251,7 @@ def retrieve_with_mode(query: str, strategy: str = "structural", top_k: int | No
         "mode": mode, "query": query, "chunks": final,
         "candidates": len(candidates), "kept": len(final),
         "dropped": dropped + overflow,
+        "max_score": _relevance_gate(final)[0],
+        "below_relevance": _relevance_gate(final)[1],
+        "relevance_threshold": config.RELEVANCE_THRESHOLD,
     }

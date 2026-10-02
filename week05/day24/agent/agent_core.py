@@ -811,15 +811,24 @@ def build_rag_system_block(chunks) -> str:
     """Формирует system-блок с найденными чанками (режим RAG)."""
     lines = [
         "КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ (RAG) — используй его как первоисточник для ответа:",
-        "Отвечай по приведённым фрагментам; не добавляй сведений, которых в них нет. "
-        "В конце перечисли использованные источники.",
+        "ФОРМАТ ОТВЕТА (обязателен):",
+        "## Ответ",
+        "<краткий ответ по контексту; каждое утверждение заканчивай ссылкой [n]>",
+        "## Источники",
+        "- [n] source: <путь> | section: <раздел> | chunk_id: <id>",
+        "## Цитаты",
+        "- [n] «<дословный фрагмент из чанка>»",
+        "Каждое утверждение помечай ссылкой [n] и подтверждай дословной цитатой; "
+        "утверждение без цитаты писать нельзя. Источники указывай с source, section "
+        "и chunk_id. Если в контексте нет ответа — скажи «не знаю» и попроси уточнить вопрос.",
     ]
     for i, c in enumerate(chunks or [], 1):
         title = c.get("title") or ""
         section = c.get("section") or ""
         src = c.get("source") or ""
+        cid = c.get("chunk_id") or ""
         header = f"[{i}] {title}" + (f" — {section}" if section else "")
-        lines.append(f"\n{header}\nИсточник: {src}\n{c.get('text', '')}")
+        lines.append(f"\n{header}\nИсточник: {src}\nchunk_id: {cid}\n{c.get('text', '')}")
     return "\n".join(lines)
 
 
@@ -1160,6 +1169,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
 
             # 4.1 RAG: дополнить контекст найденными чанками (режим «с RAG»).
             rag_context = None
+            rag_abstain = False
             if request.rag and rag_retriever is not None and user_text:
                 try:
                     rag_result = rag_retriever.retrieve(
@@ -1174,7 +1184,12 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                         rag_chunks = rag_result.get("chunks") or []
                     else:
                         rag_chunks = rag_result or []
-                    if rag_chunks:
+                    below = bool(isinstance(rag_result, dict)
+                                 and rag_result.get("below_relevance"))
+                    if not rag_chunks or below:
+                        # Детерминированный режим «не знаю» при слабом контексте.
+                        rag_abstain = True
+                    else:
                         rag_block = build_rag_system_block(rag_chunks)
                         request_messages.insert(0, {"role": "system", "content": rag_block})
                         context_tokens += estimate_tokens(rag_block)
@@ -1182,10 +1197,11 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                         "chunks": rag_chunks,
                         "sources": list(dict.fromkeys(c.get("source") for c in rag_chunks)),
                         "mode": request.rag_mode,
+                        "below_relevance": below,
                     }
                     if isinstance(rag_result, dict):
                         for key in ("rewritten_query", "original_query", "candidates",
-                                    "kept", "dropped"):
+                                    "kept", "dropped", "max_score", "relevance_threshold"):
                             if key in rag_result:
                                 rag_context[key] = rag_result[key]
                 except Exception as e:
@@ -1201,6 +1217,12 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                     "invariant_name": refusal_inv.get("name"),
                     "reason": refusal_reason or refusal_inv.get("rationale"),
                 })
+            elif rag_abstain:
+                content = (
+                    "## Ответ\nЯ не знаю ответа на этот вопрос — в базе знаний не "
+                    "нашлось достаточно релевантной информации.\n\nПожалуйста, "
+                    "уточните вопрос или переформулируйте его."
+                )
             elif mode == "approve":
                 verdict = validate_and_apply(task, _approval_update(task), source="user")
                 if verdict["accepted"]:
@@ -1298,6 +1320,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 "tool_calls": tool_calls_info,
                 "tools_active": tools_active,
                 "rag_context": rag_context,
+                "rag_abstained": rag_abstain,
                 "pending_memory": pending_memory,
                 "memory_ops_applied": memory_ops_applied,
                 "duration": round(duration, 3),
