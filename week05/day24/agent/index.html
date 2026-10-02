@@ -331,6 +331,33 @@
             border-bottom-left-radius: 4px;
         }
 
+        /* Markdown внутри пузырей ассистента */
+        .bubble h3, .bubble h4, .bubble h5, .bubble h6 {
+            margin: 10px 0 6px;
+            color: #c7d2fe;
+        }
+        .bubble h4 { font-size: 15px; }
+        .bubble h3 { font-size: 16px; }
+        .bubble p { margin: 4px 0; }
+        .bubble ul, .bubble ol { margin: 6px 0 6px 18px; padding: 0; }
+        .bubble li { margin: 2px 0; }
+        .bubble code {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 13px;
+        }
+        .bubble pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+        .bubble pre code { background: none; padding: 0; }
+        .bubble a { color: #8ab4ff; text-decoration: underline; }
+
         /* Ввод сообщения — внизу блока чата */
         .message-input {
             display: flex;
@@ -1831,6 +1858,59 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // === Мини-рендер Markdown (безопасный: сначала экранируем HTML) ===
+    function inlineMd(text) {
+        return text
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+                '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    }
+
+    function renderMarkdown(md) {
+        if (md == null) return '';
+        let s = escapeHtml(String(md));
+
+        // Блоки кода ```...``` — выносим отдельно, чтобы не трогать их строки.
+        const codeBlocks = [];
+        s = s.replace(/```([\s\S]*?)```/g, function (m, code) {
+            const i = codeBlocks.push(code) - 1;
+            return '\u0000CODE' + i + '\u0000';
+        });
+
+        const out = [];
+        let inList = false;
+        const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+        for (const line of s.split('\n')) {
+            const cb = /^\u0000CODE(\d+)\u0000$/.exec(line);
+            if (cb) {
+                closeList();
+                out.push('<pre><code>' + codeBlocks[Number(cb[1])] + '</code></pre>');
+                continue;
+            }
+            const h = /^(#{1,6})\s+(.*)$/.exec(line);
+            if (h) {
+                closeList();
+                const lvl = Math.min(h[1].length + 2, 6);
+                out.push('<h' + lvl + '>' + inlineMd(h[2]) + '</h' + lvl + '>');
+                continue;
+            }
+            const li = /^\s*[-*]\s+(.*)$/.exec(line);
+            if (li) {
+                if (!inList) { out.push('<ul>'); inList = true; }
+                out.push('<li>' + inlineMd(li[1]) + '</li>');
+                continue;
+            }
+            closeList();
+            if (line.trim() === '') continue;
+            out.push('<p>' + inlineMd(line) + '</p>');
+        }
+        closeList();
+        return out.join('');
+    }
+
     function formatNumber(n) {
         return Number(n || 0).toLocaleString('ru-RU');
     }
@@ -1856,9 +1936,12 @@
             div.className = `message ${msg.role}`;
             const refused = /^⛔\s*Отказываюсь/.test(msg.content || '');
             const chip = refused ? '<div class="refusal-chip">⛔ нарушен инвариант</div>' : '';
+            const body = msg.role === 'assistant'
+                ? renderMarkdown(msg.content)
+                : escapeHtml(msg.content);
             div.innerHTML = `
         <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
-        <div class="bubble">${chip}${escapeHtml(msg.content)}</div>
+        <div class="bubble">${chip}${body}</div>
       `;
             chatMessages.appendChild(div);
         });
