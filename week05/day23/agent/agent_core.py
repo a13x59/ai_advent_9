@@ -165,6 +165,10 @@ class AgentRequest(BaseModel):
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
     enable_tools: bool = Field(False, description="Разрешить вызов MCP-инструментов (function calling)")
     rag: bool = Field(False, description="Режим RAG: дополнить запрос релевантными чанками из базы знаний")
+    rag_mode: str = Field("baseline", description="Режим RAG: baseline|rewrite|filter|rewrite+filter|rerank")
+    rag_top_k: int = Field(5, ge=1, le=50, description="Топ-K после второго этапа")
+    rag_top_k_candidates: Optional[int] = Field(None, ge=1, le=200, description="Топ-K до фильтра/реранка")
+    rag_min_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Порог отсечения (filter-режим)")
     profile_id: Optional[str] = Field(None, description="ID профиля пользователя для этого запроса")
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
 
@@ -977,9 +981,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
     mcp_client  — один клиент MCP-инструментов (list_tools/call_tool);
     mcp_clients — список клиентов MCP-инструментов (если сервисов несколько);
                   None/пусто = без инструментов.
-    rag_retriever — объект с методом retrieve(query) -> list[chunk]; при
-                  request.rag=True найденные чанки добавляются в контекст.
-                  None = RAG отключён (retrieve не вызывается).
+    rag_retriever — объект с методом retrieve(query, ...) -> list[chunk] или
+                  dict {chunks: [...], ...}; при request.rag=True найденные
+                  чанки добавляются в контекст. None = RAG отключён.
     """
     store = store or default_storage
     clients = _normalize_mcp_clients(mcp_client, mcp_clients)
@@ -1158,17 +1162,32 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             rag_context = None
             if request.rag and rag_retriever is not None and user_text:
                 try:
-                    rag_chunks = rag_retriever.retrieve(user_text)
+                    rag_result = rag_retriever.retrieve(
+                        user_text,
+                        strategy="structural",
+                        top_k=request.rag_top_k,
+                        mode=request.rag_mode,
+                        top_k_candidates=request.rag_top_k_candidates,
+                        min_score=request.rag_min_score,
+                    )
+                    if isinstance(rag_result, dict) and "chunks" in rag_result:
+                        rag_chunks = rag_result.get("chunks") or []
+                    else:
+                        rag_chunks = rag_result or []
                     if rag_chunks:
                         rag_block = build_rag_system_block(rag_chunks)
                         request_messages.insert(0, {"role": "system", "content": rag_block})
                         context_tokens += estimate_tokens(rag_block)
-                        rag_context = {
-                            "chunks": rag_chunks,
-                            "sources": list(dict.fromkeys(c.get("source") for c in rag_chunks)),
-                        }
-                    else:
-                        rag_context = {"chunks": [], "sources": []}
+                    rag_context = {
+                        "chunks": rag_chunks,
+                        "sources": list(dict.fromkeys(c.get("source") for c in rag_chunks)),
+                        "mode": request.rag_mode,
+                    }
+                    if isinstance(rag_result, dict):
+                        for key in ("rewritten_query", "original_query", "candidates",
+                                    "kept", "dropped"):
+                            if key in rag_result:
+                                rag_context[key] = rag_result[key]
                 except Exception as e:
                     logger.warning("Ошибка RAG-ретрива: %s", e)
                     rag_context = {"error": str(e)}

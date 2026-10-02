@@ -29,7 +29,8 @@ class RecordingProvider(MockProvider):
 class FakeRetriever:
     """Детерминированный ретривер вместо реального rag-сервиса."""
 
-    def retrieve(self, query, strategy="structural", top_k=5):
+    def retrieve(self, query, strategy="structural", top_k=5, mode="baseline",
+                 top_k_candidates=None, min_score=None):
         return [{
             "chunk_id": "c1",
             "source": "articles/word2vec.txt",

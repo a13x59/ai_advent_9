@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .chunkers import chunk_document
 from .embedder import EMBEDDING_DIM, Embedder, MODEL_NAME
-from .evaluate import QUERIES, evaluate_strategy
+from .evaluate import QUERIES, evaluate_strategy, threshold_sweep
 from .indexer import build_index, load_index
 from .loader import load_documents
 
@@ -102,17 +102,42 @@ def cmd_eval(args: argparse.Namespace) -> None:
         print(f"  оценено запросов: {res['n_scored']}/{res['n_queries']}")
         print(f"  Recall@5 = {a['recall@5']:.4f}  MRR@10 = {a['mrr@10']:.4f}  "
               f"nDCG@10 = {a['ndcg@10']:.4f}")
+        print(f"  Precision@5 = {a['precision@5']:.4f}  "
+              f"Precision@10 = {a['precision@10']:.4f}")
         for p in res["per_query"]:
             if p["recall@5"] is None:
                 print(f"    - [SKIP] {p['query']} ({p['warn']})")
             else:
-                print(f"    - R@5={p['recall@5']:.3f} MRR={p['mrr@10']:.3f} "
-                      f"nDCG={p['ndcg@10']:.3f}  {p['query']}")
+                print(f"    - R@5={p['recall@5']:.3f} P@5={p['precision@5']:.3f} "
+                      f"MRR={p['mrr@10']:.3f} nDCG={p['ndcg@10']:.3f}  {p['query']}")
 
     (REPORT_DIR / "metrics.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"\nМетрики сохранены в {REPORT_DIR / 'metrics.json'}")
+
+
+def cmd_sweep(args: argparse.Namespace) -> None:
+    embedder = Embedder(args.model)
+    results: dict = {}
+
+    for strategy in STRATEGIES:
+        index, records, manifest = load_index(strategy, INDEX_DIR)
+        print(f"\n=== Sweep порога, стратегия: {strategy} "
+              f"({manifest['n_chunks']} чанков) ===")
+        res = threshold_sweep(index, records, embedder, QUERIES,
+                              top_k_candidates=args.top_k_candidates,
+                              top_k_final=args.top_k_final)
+        results[strategy] = res
+        print(f"  {'threshold':>10} {'precision':>10} {'recall':>8} {'avg_kept':>9}")
+        for row in res["thresholds"]:
+            print(f"  {row['threshold']:>10.2f} {row['precision']:>10.4f} "
+                  f"{row['recall']:>8.4f} {row['avg_kept']:>9.2f}")
+
+    (REPORT_DIR / "threshold_sweep.json").write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"\nSweep сохранён в {REPORT_DIR / 'threshold_sweep.json'}")
 
 
 def cmd_query(args: argparse.Namespace) -> None:
@@ -139,6 +164,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--batch-size", type=int, default=32)
     p_eval = sub.add_parser("eval", help="метрики на тест-сете")
     p_eval.add_argument("--top-k", type=int, default=10)
+    p_sweep = sub.add_parser("sweep", help="сетка порогов отсечения (precision/recall)")
+    p_sweep.add_argument("--top-k-candidates", type=int, default=20)
+    p_sweep.add_argument("--top-k-final", type=int, default=5)
     p_query = sub.add_parser("query", help="поисковый запрос")
     p_query.add_argument("--strategy", "-s", choices=STRATEGIES, default="structural")
     p_query.add_argument("--top-k", type=int, default=5)
@@ -153,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd_run(args)
     elif args.cmd == "eval":
         cmd_eval(args)
+    elif args.cmd == "sweep":
+        cmd_sweep(args)
     elif args.cmd == "query":
         cmd_query(args)
     return 0

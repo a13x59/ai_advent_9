@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from .retrieval import retrieve
+from .retrieval import retrieve_with_mode
 
 # Единый источник ключа — корневой .env (day22/.env), не зависит от рабочей папки.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
@@ -84,17 +84,61 @@ def answer_plain(question: str, temperature: float = 0.0, max_tokens: int = 1024
     return call_llm(messages, temperature=temperature, max_tokens=max_tokens)
 
 
-def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
-               embedder=None, temperature: float = 0.0, max_tokens: int = 1024) -> dict:
-    """Ответ модели С RAG: ретрив → промпт с контекстом → LLM.
+REWRITE_SYSTEM = (
+    "Ты — помощник поискового движка. Переформулируй вопрос пользователя в "
+    "самодостаточный поисковый запрос на русском языке: раскрой местоимения и "
+    "неоднозначности, добавь ключевые термины и синонимы, сохрани исходный смысл. "
+    "Верни ТОЛЬКО итоговый запрос, без пояснений и кавычек."
+)
 
-    Возвращает dict с answer и найденными chunks (для трейса и отчёта).
+
+def rewrite_query(question: str, temperature: float = 0.0, max_tokens: int = 256) -> str:
+    """LLM-переформулировка вопроса в поисковый запрос (этап до ретрива)."""
+    messages = [
+        {"role": "system", "content": REWRITE_SYSTEM},
+        {"role": "user", "content": question},
+    ]
+    return call_llm(messages, temperature=temperature, max_tokens=max_tokens).strip()
+
+
+def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
+               embedder=None, mode: str = "baseline", top_k_candidates: int | None = None,
+               min_score: float | None = None, temperature: float = 0.0,
+               max_tokens: int = 1024) -> dict:
+    """Ответ модели С RAG: (rewrite?) → ретрив → (filter/rerank?) → промпт → LLM.
+
+    mode ∈ {baseline, rewrite, filter, rewrite+filter, rerank}.
+    Возвращает dict с answer, chunks и трейсом второго этапа (для отчёта).
     """
-    chunks = retrieve(question, strategy=strategy, top_k=top_k, embedder=embedder)
+    query = question
+    rewritten = None
+    if mode in ("rewrite", "rewrite+filter"):
+        rewritten = rewrite_query(question)
+        query = rewritten
+
+    result = retrieve_with_mode(
+        query, strategy=strategy, top_k=top_k, top_k_candidates=top_k_candidates,
+        min_score=min_score, mode=mode, embedder=embedder,
+    )
+    chunks = result["chunks"]
+
+    # В промпт всегда идёт ИСХОДНЫЙ вопрос пользователя; переформулировка
+    # используется только для поиска.
     prompt = build_rag_prompt(question, chunks)
     messages = [
         {"role": "system", "content": RAG_SYSTEM},
         {"role": "user", "content": prompt},
     ]
     answer = call_llm(messages, temperature=temperature, max_tokens=max_tokens)
-    return {"answer": answer, "chunks": chunks, "strategy": strategy, "top_k": top_k}
+    return {
+        "answer": answer,
+        "chunks": chunks,
+        "strategy": strategy,
+        "top_k": top_k,
+        "mode": mode,
+        "rewritten_query": rewritten,
+        "query_used": query,
+        "candidates": result.get("candidates"),
+        "kept": result.get("kept"),
+        "dropped": result.get("dropped", []),
+    }

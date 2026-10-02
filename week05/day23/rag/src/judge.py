@@ -148,6 +148,147 @@ def run_judge(results: list[dict]) -> list[dict]:
     return results
 
 
+# --------------------------------------------------------------------------- #
+# Матрица режимов (День 23): plain vs baseline/rewrite/filter/rewrite+filter/rerank
+# --------------------------------------------------------------------------- #
+def _modes_order(scored: list[dict]) -> list[str]:
+    if not scored:
+        return []
+    from . import config
+    order = []
+    for m in config.MODES:
+        if any(m in (r.get("modes") or {}) for r in scored):
+            order.append(m)
+    for m in scored[0].get("modes", {}):
+        if m not in order:
+            order.append(m)
+    return order
+
+
+def build_modes_report(scored: list[dict]) -> str:
+    n = len(scored)
+    modes = _modes_order(scored)
+    avg_plain = sum(r["judge_plain"]["score"] for r in scored) / n if n else 0.0
+
+    stats = {m: {"avg": 0.0, "better": 0, "worse": 0, "same": 0, "hits": 0,
+                 "precision": 0.0, "kept": 0.0} for m in modes}
+    baseline = "baseline"
+    for r in scored:
+        bscore = None
+        if baseline in (r.get("modes") or {}):
+            bscore = r["judge_modes"][baseline]["score"]
+        for mode in modes:
+            m = r["modes"].get(mode)
+            if m is None:
+                continue
+            st = stats[mode]
+            st["avg"] += r["judge_modes"][mode]["score"]
+            st["hits"] += 1 if m.get("hit") else 0
+            st["precision"] += m.get("precision", 0.0)
+            st["kept"] += m.get("kept", 0)
+            if bscore is not None:
+                ms = r["judge_modes"][mode]["score"]
+                if ms > bscore:
+                    st["better"] += 1
+                elif ms < bscore:
+                    st["worse"] += 1
+                else:
+                    st["same"] += 1
+
+    lines = [
+        "# Сравнение режимов RAG (реранкинг и фильтрация)",
+        "",
+        f"Вопросов: {n}. Средняя оценка (0–2): **без RAG — {avg_plain:.2f}**.",
+        "",
+        "Режимы: baseline (без второго этапа) · rewrite (LLM-переформулировка) · "
+        "filter (порог similarity) · rewrite+filter · rerank (лексическая эвристика + MMR).",
+        "",
+        "| Режим | Средний score | Лучше baseline | Хуже baseline | Hit@top-k | Precision | Ср. kept |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for m in modes:
+        st = stats[m]
+        avg = st["avg"] / n if n else 0.0
+        prec = st["precision"] / n if n else 0.0
+        kept = st["kept"] / n if n else 0.0
+        vs = f"+{st['better']}/−{st['worse']}" if baseline in modes else "—"
+        lines.append(
+            f"| {m} | {avg:.2f} | {st['better']} | {st['worse']} | "
+            f"{st['hits']}/{n} | {prec:.2f} | {kept:.2f} |"
+        )
+    lines += [
+        "",
+        "## По вопросам",
+        "",
+        "| # | Вопрос | plain | " + " | ".join(modes) + " |",
+        "|---|---|---|" + "---|" * len(modes),
+    ]
+    for r in scored:
+        cells = [f"{r.get('id')}", r["question"], f"{r['judge_plain']['score']}/2"]
+        for m in modes:
+            if m in r.get("modes", {}):
+                cells.append(f"{r['judge_modes'][m]['score']}/2")
+            else:
+                cells.append("—")
+        lines.append("| " + " | ".join(cells) + " |")
+
+    lines += ["", "## Детали по вопросам", ""]
+    for r in scored:
+        lines.append(f"### {r.get('id')}. {r['question']}")
+        lines.append("")
+        lines.append(f"**Ожидание:** {r['expectation']}")
+        lines.append("")
+        lines.append(f"**Без RAG ({r['judge_plain']['score']}/2):** "
+                     f"{r['judge_plain']['rationale']}")
+        lines.append("")
+        for m in modes:
+            md = r.get("modes", {}).get(m)
+            if md is None:
+                continue
+            j = r["judge_modes"][m]
+            rewrite = ""
+            if md.get("rewritten_query"):
+                rewrite = f" · rewrite: «{md['rewritten_query']}»"
+            kept = md.get("kept")
+            dropped = len(md.get("dropped") or [])
+            meta = f"kept {kept}" + (f" / отсечено {dropped}" if dropped else "")
+            lines += [
+                f"**{m} ({j['score']}/2)** — {meta}{rewrite}",
+                "",
+                f"> {md['answer'].strip()[:400]}",
+                "",
+                "Чанки:",
+                "",
+            ]
+            for c in md.get("chunks") or []:
+                lines.append(f"- `{c.get('source')}` — {c.get('title')} "
+                             f"(score {c.get('score', 0):.3f})")
+            lines.append("")
+    return "\n".join(lines)
+
+
+def run_modes_judge(results: list[dict]) -> list[dict]:
+    for r in results:
+        print(f"\nОценка [{r.get('id')}] {r['question']}")
+        r["judge_plain"] = judge_answer(r["question"], r["expectation"], r["plain_answer"])
+        r["judge_modes"] = {}
+        for mode, m in r.get("modes", {}).items():
+            r["judge_modes"][mode] = judge_answer(r["question"], r["expectation"], m["answer"])
+            print(f"  {mode}: {r['judge_modes'][mode]['score']}/2")
+        print(f"  plain: {r['judge_plain']['score']}/2")
+
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    (REPORT_DIR / "rag_modes.json").write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (REPORT_DIR / "rerank_comparison.md").write_text(
+        build_modes_report(results), encoding="utf-8"
+    )
+    print(f"\nОтчёт: {REPORT_DIR / 'rerank_comparison.md'}")
+    print(f"Данные: {REPORT_DIR / 'rag_modes.json'}")
+    return results
+
+
 def main() -> int:
     answers_path = REPORT_DIR / "rag_answers.json"
     if not answers_path.exists():

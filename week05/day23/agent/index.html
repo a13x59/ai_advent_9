@@ -1410,6 +1410,32 @@
                 📚 RAG — отвечать по базе знаний
             </label>
 
+            <details class="params-group" id="ragControls">
+                <summary>📚 Параметры RAG (реранкинг и фильтрация)</summary>
+                <div class="group-body">
+                    <label for="rag_mode">Режим</label>
+                    <select id="rag_mode">
+                        <option value="baseline">baseline — без второго этапа</option>
+                        <option value="rewrite">rewrite — переформулировка запроса (LLM)</option>
+                        <option value="filter">filter — порог similarity</option>
+                        <option value="rewrite+filter">rewrite + filter</option>
+                        <option value="rerank">rerank — лексическая эвристика + MMR</option>
+                    </select>
+                    <div class="row2">
+                        <div>
+                            <label for="rag_min_score">Порог min_score</label>
+                            <input type="number" id="rag_min_score" value="0.5" step="0.05" min="0" max="1">
+                        </div>
+                        <div>
+                            <label for="rag_top_k">Топ-K после</label>
+                            <input type="number" id="rag_top_k" value="5" step="1" min="1" max="20">
+                        </div>
+                    </div>
+                    <label for="rag_top_k_candidates">Топ-K до (кандидатов)</label>
+                    <input type="number" id="rag_top_k_candidates" value="20" step="1" min="1" max="100">
+                </div>
+            </details>
+
             <div class="branch-controls" id="branchControls">
                 <div class="branch-row">
                     <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
@@ -1671,6 +1697,10 @@
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
     const ragEl = document.getElementById('rag');
+    const ragModeEl = document.getElementById('rag_mode');
+    const ragMinScoreEl = document.getElementById('rag_min_score');
+    const ragTopKEl = document.getElementById('rag_top_k');
+    const ragTopKCandidatesEl = document.getElementById('rag_top_k_candidates');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
     const rateBtn = document.getElementById('rateBtn');
@@ -1883,20 +1913,28 @@
             return;
         }
         const chunks = ragContext.chunks || [];
-        if (!chunks.length) return;
-        const div = document.createElement('div');
-        div.className = 'message assistant';
+        const mode = ragContext.mode ? ` · режим ${escapeHtml(ragContext.mode)}` : '';
+        const kept = ragContext.kept != null ? ` · kept ${ragContext.kept}` : '';
+        const dropped = (ragContext.dropped || []).length;
+        const droppedNote = dropped ? ` · отсечено ${dropped}` : '';
+        const rewritten = ragContext.rewritten_query
+            ? ` · запрос: «${escapeHtml(ragContext.rewritten_query)}»` : '';
         const items = chunks.map(c => {
             const score = c.score != null ? Number(c.score).toFixed(3) : '';
             const title = escapeHtml(c.title || '');
             const section = c.section ? ' · ' + escapeHtml(c.section) : '';
             return `<li><span class="tool-server">${escapeHtml(c.source)}</span> — ${title}${section}${score ? ` <span class="tool-step">(score ${score})</span>` : ''}</li>`;
         }).join('');
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        const head = chunks.length
+            ? `RAG — источники из базы знаний (${chunks.length})${mode}${kept}${droppedNote}${rewritten}`
+            : `RAG — релевантные чанки не найдены${mode}${droppedNote}${rewritten}`;
         div.innerHTML = `
         <div class="avatar">📚</div>
         <div class="bubble">
-          <div class="tool-chip">RAG — источники из базы знаний (${chunks.length})</div>
-          <ul style="margin:6px 0 0 18px;font-size:12px;color:#9aa4b2;">${items}</ul>
+          <div class="tool-chip">${head}</div>
+          ${items ? `<ul style="margin:6px 0 0 18px;font-size:12px;color:#9aa4b2;">${items}</ul>` : ''}
         </div>
       `;
         chatMessages.appendChild(div);
@@ -2705,6 +2743,10 @@
             auto_suggest_memory: autoSuggestEl.checked,
             enable_tools: enableToolsEl.checked,
             rag: ragEl.checked,
+            rag_mode: ragModeEl.value,
+            rag_min_score: parseFloat(ragMinScoreEl.value) || 0.5,
+            rag_top_k: parseInt(ragTopKEl.value) || 5,
+            rag_top_k_candidates: parseInt(ragTopKCandidatesEl.value) || 20,
         };
         if (sessionId) payload.session_id = sessionId;
         if (stop) payload.stop = stop;

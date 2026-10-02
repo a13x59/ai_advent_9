@@ -3,70 +3,262 @@
     "id": "q1",
     "question": "Как работает модель word2vec и какие две архитектуры она использует?",
     "expectation": "Названы обе архитектуры — CBOW (предсказание слова по контексту) и skip-gram (предсказание контекста по слову); объяснено, что модель обучает векторные представления слов на основе совместной встречаемости.",
-    "sources": ["word2vec — статья Википедии"],
-    "relevant": ["word2vec"]
+    "sources": [
+      "word2vec — статья Википедии"
+    ],
+    "relevant": [
+      "word2vec"
+    ],
+    "relevant_chunk_ids": [
+      "articles/word2vec.txt:structural:0000",
+      "articles/word2vec.txt:structural:0001",
+      "articles/word2vec.txt:structural:0002",
+      "articles/word2vec.txt:structural:0003",
+      "articles/word2vec.txt:structural:0004",
+      "articles/word2vec.txt:structural:0005",
+      "articles/word2vec.txt:structural:0006",
+      "articles/word2vec.txt:structural:0007",
+      "articles/word2vec.txt:structural:0008",
+      "articles/word2vec.txt:structural:0009",
+      "articles/word2vec.txt:structural:0010",
+      "articles/word2vec.txt:structural:0011"
+    ]
   },
   {
     "id": "q2",
     "question": "Что такое RAG (генерация, дополненная поиском) и какие проблемы обычных языковых моделей она решает?",
     "expectation": "Описана схема: поиск релевантных документов + передача их в промпт генеративной модели; названы решаемые проблемы — галлюцинации, устаревшие знания, отсутствие ссылок на источники.",
-    "sources": ["генерация_дополненная_поиском — статья Википедии"],
-    "relevant": ["генерация_дополненная_поиском"]
+    "sources": [
+      "генерация_дополненная_поиском — статья Википедии"
+    ],
+    "relevant": [
+      "генерация_дополненная_поиском"
+    ],
+    "relevant_chunk_ids": [
+      "articles/генерация_дополненная_поиском.txt:structural:0000",
+      "articles/генерация_дополненная_поиском.txt:structural:0001",
+      "articles/генерация_дополненная_поиском.txt:structural:0002",
+      "articles/генерация_дополненная_поиском.txt:structural:0003",
+      "articles/генерация_дополненная_поиском.txt:structural:0004",
+      "articles/генерация_дополненная_поиском.txt:structural:0005",
+      "articles/генерация_дополненная_поиском.txt:structural:0006",
+      "articles/генерация_дополненная_поиском.txt:structural:0007",
+      "articles/генерация_дополненная_поиском.txt:structural:0008",
+      "articles/генерация_дополненная_поиском.txt:structural:0009",
+      "articles/генерация_дополненная_поиском.txt:structural:0010",
+      "articles/генерация_дополненная_поиском.txt:structural:0011",
+      "articles/генерация_дополненная_поиском.txt:structural:0012",
+      "articles/генерация_дополненная_поиском.txt:structural:0013",
+      "articles/генерация_дополненная_поиском.txt:structural:0014",
+      "articles/генерация_дополненная_поиском.txt:structural:0015",
+      "articles/генерация_дополненная_поиском.txt:structural:0016",
+      "articles/генерация_дополненная_поиском.txt:structural:0017",
+      "articles/генерация_дополненная_поиском.txt:structural:0018",
+      "articles/генерация_дополненная_поиском.txt:structural:0019",
+      "articles/генерация_дополненная_поиском.txt:structural:0020",
+      "articles/генерация_дополненная_поиском.txt:structural:0021"
+    ]
   },
   {
     "id": "q3",
     "question": "Что такое косинусное сходство и как оно вычисляется для двух векторов?",
     "expectation": "Приведена формула косинуса угла между векторами (скалярное произведение, делённое на произведение норм), указан диапазон значений и отмечено, что метрика не зависит от длины векторов.",
-    "sources": ["косинусное_сходство — статья Википедии"],
-    "relevant": ["косинусное_сходство"]
+    "sources": [
+      "косинусное_сходство — статья Википедии"
+    ],
+    "relevant": [
+      "косинусное_сходство"
+    ],
+    "relevant_chunk_ids": [
+      "articles/косинусное_сходство.txt:structural:0000",
+      "articles/косинусное_сходство.txt:structural:0001",
+      "articles/косинусное_сходство.txt:structural:0002"
+    ]
   },
   {
     "id": "q4",
     "question": "Что такое инвертированный индекс и зачем он нужен в информационном поиске?",
     "expectation": "Объяснена структура: отображение «термин → список документов/позиций»; указано, что он ускоряет поиск документов по словам вместо полного перебора.",
-    "sources": ["инвертированный_индекс — статья Википедии", "информационный_поиск — статья Википедии"],
-    "relevant": ["инвертированный_индекс", "информационный_поиск"]
+    "sources": [
+      "инвертированный_индекс — статья Википедии",
+      "информационный_поиск — статья Википедии"
+    ],
+    "relevant": [
+      "инвертированный_индекс",
+      "информационный_поиск"
+    ],
+    "relevant_chunk_ids": [
+      "articles/инвертированный_индекс.txt:structural:0000",
+      "articles/инвертированный_индекс.txt:structural:0001",
+      "articles/инвертированный_индекс.txt:structural:0002",
+      "articles/инвертированный_индекс.txt:structural:0003",
+      "articles/инвертированный_индекс.txt:structural:0004",
+      "articles/инвертированный_индекс.txt:structural:0005",
+      "articles/инвертированный_индекс.txt:structural:0006",
+      "articles/информационный_поиск.txt:structural:0000",
+      "articles/информационный_поиск.txt:structural:0001",
+      "articles/информационный_поиск.txt:structural:0002",
+      "articles/информационный_поиск.txt:structural:0003",
+      "articles/информационный_поиск.txt:structural:0004",
+      "articles/информационный_поиск.txt:structural:0005",
+      "articles/информационный_поиск.txt:structural:0006",
+      "articles/информационный_поиск.txt:structural:0007",
+      "articles/информационный_поиск.txt:structural:0008",
+      "articles/информационный_поиск.txt:structural:0009",
+      "articles/информационный_поиск.txt:structural:0010",
+      "articles/информационный_поиск.txt:structural:0011",
+      "articles/информационный_поиск.txt:structural:0012",
+      "articles/информационный_поиск.txt:structural:0013",
+      "articles/информационный_поиск.txt:structural:0014",
+      "articles/информационный_поиск.txt:structural:0015",
+      "articles/информационный_поиск.txt:structural:0016",
+      "articles/информационный_поиск.txt:structural:0017",
+      "articles/информационный_поиск.txt:structural:0018",
+      "articles/информационный_поиск.txt:structural:0019",
+      "articles/информационный_поиск.txt:structural:0020",
+      "articles/информационный_поиск.txt:structural:0021"
+    ]
   },
   {
     "id": "q5",
     "question": "Как устроена архитектура трансформера и какую роль в ней играет механизм внимания?",
     "expectation": "Упомянуты self-attention/многоголовое внимание, encoder/decoder и позиционное кодирование; объяснено, что внимание взвешивает значимость токенов друг для друга.",
-    "sources": ["трансформер_машинное_обучение — статья Википедии"],
-    "relevant": ["трансформер_машинное_обучение"]
+    "sources": [
+      "трансформер_машинное_обучение — статья Википедии"
+    ],
+    "relevant": [
+      "трансформер_машинное_обучение"
+    ],
+    "relevant_chunk_ids": [
+      "articles/трансформер_машинное_обучение.txt:structural:0000",
+      "articles/трансформер_машинное_обучение.txt:structural:0001",
+      "articles/трансформер_машинное_обучение.txt:structural:0002",
+      "articles/трансформер_машинное_обучение.txt:structural:0003",
+      "articles/трансформер_машинное_обучение.txt:structural:0004",
+      "articles/трансформер_машинное_обучение.txt:structural:0005",
+      "articles/трансформер_машинное_обучение.txt:structural:0006",
+      "articles/трансформер_машинное_обучение.txt:structural:0007"
+    ]
   },
   {
     "id": "q6",
     "question": "Что такое токенизация текста и какие подходы к ней существуют?",
     "expectation": "Токенизация определена как разбиение текста на токены (слова, подслова, символы); названы подходы — по пробелам/словам, подсловные (BPE), символьные.",
-    "sources": ["токенизация — статья Википедии"],
-    "relevant": ["токенизация"]
+    "sources": [
+      "токенизация — статья Википедии"
+    ],
+    "relevant": [
+      "токенизация"
+    ],
+    "relevant_chunk_ids": [
+      "articles/токенизация.txt:structural:0000",
+      "articles/токенизация.txt:structural:0001",
+      "articles/токенизация.txt:structural:0002",
+      "articles/токенизация.txt:structural:0003",
+      "articles/токенизация.txt:structural:0004",
+      "articles/токенизация.txt:structural:0005",
+      "articles/токенизация.txt:structural:0006",
+      "articles/токенизация.txt:structural:0007"
+    ]
   },
   {
     "id": "q7",
     "question": "Что такое лемматизация и чем она отличается от стемминга?",
     "expectation": "Лемматизация определена как приведение слова к словарной форме (лемме) с учётом части речи; стемминг — как грубое отсечение окончаний без учёта контекста.",
-    "sources": ["лемматизация — статья Википедии"],
-    "relevant": ["лемматизация"]
+    "sources": [
+      "лемматизация — статья Википедии"
+    ],
+    "relevant": [
+      "лемматизация"
+    ],
+    "relevant_chunk_ids": [
+      "articles/лемматизация.txt:structural:0000",
+      "articles/лемматизация.txt:structural:0001",
+      "articles/лемматизация.txt:structural:0002",
+      "articles/лемматизация.txt:structural:0003",
+      "articles/лемматизация.txt:structural:0004",
+      "articles/лемматизация.txt:structural:0005"
+    ]
   },
   {
     "id": "q8",
     "question": "Что такое n-граммы и для чего они используются в обработке естественного языка?",
     "expectation": "n-грамма определена как последовательность из n соседних элементов (униграмма, биграмма, триграмма); приведено применение — языковые модели и предсказание следующего слова.",
-    "sources": ["n_грамма — статья Википедии"],
-    "relevant": ["n_грамма"]
+    "sources": [
+      "n_грамма — статья Википедии"
+    ],
+    "relevant": [
+      "n_грамма"
+    ],
+    "relevant_chunk_ids": [
+      "articles/n_грамма.txt:structural:0000",
+      "articles/n_грамма.txt:structural:0001",
+      "articles/n_грамма.txt:structural:0002",
+      "articles/n_грамма.txt:structural:0003",
+      "articles/n_грамма.txt:structural:0004",
+      "articles/n_грамма.txt:structural:0005",
+      "articles/n_грамма.txt:structural:0006",
+      "articles/n_грамма.txt:structural:0007",
+      "articles/n_грамма.txt:structural:0008",
+      "articles/n_грамма.txt:structural:0009",
+      "articles/n_грамма.txt:structural:0010"
+    ]
   },
   {
     "id": "q9",
     "question": "Что такое модель «мешок слов» и в чём её основные ограничения?",
     "expectation": "Текст представлен как мультимножество слов с частотами без учёта порядка; ограничение — потеря порядка слов и синтаксиса.",
-    "sources": ["мешок_слов — статья Википедии"],
-    "relevant": ["мешок_слов"]
+    "sources": [
+      "мешок_слов — статья Википедии"
+    ],
+    "relevant": [
+      "мешок_слов"
+    ],
+    "relevant_chunk_ids": [
+      "articles/мешок_слов.txt:structural:0000",
+      "articles/мешок_слов.txt:structural:0001",
+      "articles/мешок_слов.txt:structural:0002",
+      "articles/мешок_слов.txt:structural:0003",
+      "articles/мешок_слов.txt:structural:0004",
+      "articles/мешок_слов.txt:structural:0005",
+      "articles/мешок_слов.txt:structural:0006",
+      "articles/мешок_слов.txt:structural:0007",
+      "articles/мешок_слов.txt:structural:0008",
+      "articles/мешок_слов.txt:structural:0009",
+      "articles/мешок_слов.txt:structural:0010"
+    ]
   },
   {
     "id": "q10",
     "question": "Какие возможности предоставляет библиотека natasha для обработки русского языка?",
     "expectation": "Перечислены возможности natasha: сегментация, токенизация, морфология/лемматизация, извлечение именованных сущностей и фактов (даты, деньги и т.п.).",
-    "sources": ["natasha_README — README библиотеки"],
-    "relevant": ["natasha_README"]
+    "sources": [
+      "natasha_README — README библиотеки"
+    ],
+    "relevant": [
+      "natasha_README"
+    ],
+    "relevant_chunk_ids": [
+      "docs/natasha_README.md:structural:0000",
+      "docs/natasha_README.md:structural:0001",
+      "docs/natasha_README.md:structural:0002",
+      "docs/natasha_README.md:structural:0003",
+      "docs/natasha_README.md:structural:0004",
+      "docs/natasha_README.md:structural:0005",
+      "docs/natasha_README.md:structural:0006",
+      "docs/natasha_README.md:structural:0007",
+      "docs/natasha_README.md:structural:0008",
+      "docs/natasha_README.md:structural:0009",
+      "docs/natasha_README.md:structural:0010",
+      "docs/natasha_README.md:structural:0011",
+      "docs/natasha_README.md:structural:0012",
+      "docs/natasha_README.md:structural:0013",
+      "docs/natasha_README.md:structural:0014",
+      "docs/natasha_README.md:structural:0015",
+      "docs/natasha_README.md:structural:0016",
+      "docs/natasha_README.md:structural:0017",
+      "docs/natasha_README.md:structural:0018",
+      "docs/natasha_README.md:structural:0019"
+    ]
   }
 ]

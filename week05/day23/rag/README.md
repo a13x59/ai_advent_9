@@ -125,6 +125,52 @@ python -m src.compare --strategy structural --top-k 5
 
 Оценку можно пересчитать отдельно: `python -m src.judge`.
 
+## Реранкинг и фильтрация (День 23)
+
+Второй этап после поиска + query rewrite + сравнение режимов. Параметры —
+в `src/config.py` (`MIN_SCORE`, `TOP_K_CANDIDATES`, `TOP_K_FINAL`, `LEX_WEIGHT`,
+`MMR_LAMBDA`, `MODES`).
+
+### Режимы
+
+`src/compare.py` прогоняет контрольные вопросы в нескольких режимах:
+
+| Режим | Что делает |
+|---|---|
+| `baseline` | одностадийный поиск, без второго этапа |
+| `rewrite` | LLM-переформулировка запроса (DeepSeek) → поиск |
+| `filter` | топ-K кандидатов → отсечение по порогу similarity |
+| `rewrite+filter` | rewrite + фильтр по порогу |
+| `rerank` | топ-K кандидатов → лексическая эвристика + fusion + MMR |
+
+### Механика второго этапа
+
+- **filter** — абсолютный порог `MIN_SCORE` (по умолчанию 0.5, подбирается
+  sweep-ом) + опциональный относительный запас `MAX_SCORE_MARGIN` для
+  устойчивости к масштабу score на коротких запросах.
+- **rerank** — лексическое пересечение слов запроса и чанка (`lexical_score`),
+  fusion с косинусом (`LEX_WEIGHT`) + MMR-разнообразие (`MMR_LAMBDA`), чтобы
+  убрать дубли из одного документа и пересортировать выдачу.
+
+### Команды
+
+```bash
+# метрики ретрива + precision@5 / precision@10
+python -m src.pipeline eval
+
+# сетка порогов (precision/recall) → reports/threshold_sweep.json
+python -m src.pipeline sweep
+
+# матрица режимов + LLM-judge → reports/rerank_comparison.md, reports/rag_modes.json
+python -m src.compare --strategy structural --top-k 5
+```
+
+### Отчёты
+
+- `reports/threshold_sweep.json` — precision/recall по сетке порогов;
+- `reports/rag_modes_answers.json` / `reports/rag_modes.json` — сырые ответы и оценки по режимам;
+- `reports/rerank_comparison.md` — сводная таблица режимов (score, лучше/хуже baseline, hit@k, precision, kept).
+
 ## HTTP-сервис ретрива
 
 Для агента (`agent/rag_client.py`) ретрив вынесен в отдельный сервис, чтобы не
@@ -135,9 +181,17 @@ uvicorn src.server:app --host 0.0.0.0 --port 8891
 ```
 
 - `GET /health` — статус;
-- `POST /retrieve` — `{"query": "...", "strategy": "structural", "top_k": 5}`
-  → `{"chunks": [...]}`.
+- `POST /retrieve` — `{"query": "...", "strategy": "structural", "top_k": 5,
+  "top_k_candidates": 20, "min_score": 0.5, "mode": "baseline"}` →
+  `{"chunks": [...], "mode": ..., "candidates": ..., "kept": ...,
+  "dropped": [...], "rewritten_query": ...}`. `mode` ∈
+  `baseline|rewrite|filter|rewrite+filter|rerank`; режимы `rewrite*`
+  переформулируют запрос через DeepSeek.
 
 Агент включает режим RAG флагом `rag: true` в теле `/agent` (или чекбоксом
-«📚 RAG» на веб-странице); найденные чанки подставляются в контекст, а в ответе
-приходит поле `rag_context` с использованными источниками.
+«📚 RAG» на веб-странице). В теле запроса можно задать `rag_mode`,
+`rag_top_k`, `rag_top_k_candidates`, `rag_min_score`; на веб-странице этим
+управляет группа «📚 Параметры RAG (реранкинг и фильтрация)». Найденные чанки
+подставляются в контекст, а в ответе приходит поле `rag_context` с
+использованными источниками и метаданными второго этапа (mode, kept, dropped,
+rewritten_query).
