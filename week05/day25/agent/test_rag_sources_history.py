@@ -100,3 +100,31 @@ def test_clarification_and_term_kinds_persist(tmp_path):
 
     kinds = {e["kind"] for e in store.load_working("s1")}
     assert {"clarification", "term"} <= kinds
+
+
+def test_delete_working_memory_via_op_does_not_deadlock(tmp_path):
+    """Регрессия: удаление рабочей памяти раньше зависало (вложенный захват Lock)."""
+    store = HistoryStorage(str(tmp_path / "del.db"))
+    store.create_session("s1")
+    store.save_working_entry("s1", {
+        "key": "цель", "value": "сравнить word2vec и bag-of-words",
+        "kind": "goal", "state": "done",
+    })
+
+    res = store.apply_memory_op("s1", {"action": "delete", "layer": "working", "key": "цель"})
+
+    assert res["deleted"] is True
+    assert store.load_working("s1") == []
+
+
+def test_move_working_to_long_term_does_not_deadlock(tmp_path):
+    """Регрессия: перенос рабочая → долговременная тоже проходил через тот же лок."""
+    store = HistoryStorage(str(tmp_path / "move.db"))
+    store.create_session("s1")
+    store.save_working_entry("s1", {"key": "факт", "value": "x", "kind": "note"})
+
+    res = store.apply_memory_op("s1", {"action": "move", "from": "working", "to": "long_term", "key": "факт"})
+
+    assert res["moved_from"] == "working"
+    assert store.load_working("s1") == []
+    assert store.get_long_term_entry("факт") is not None

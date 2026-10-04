@@ -66,7 +66,11 @@ class HistoryStorage:
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
-        self._lock = threading.Lock()
+        # RLock, а не Lock: часть публичных методов (например delete_working_entry)
+        # внутри секции `with self._lock` вызывает другие методы, которые тоже берут
+        # этот лок (get_session_profile / get_active_profile). Обычный Lock на этом
+        # даёт взаимную блокировку — удаление/перенос из рабочей памяти зависал.
+        self._lock = threading.RLock()
         # session_id -> {
         #     "current_branch": str,
         #     "strategy": str,
