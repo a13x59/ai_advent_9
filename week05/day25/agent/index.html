@@ -409,6 +409,40 @@
             transform: scale(0.98);
         }
 
+        .btn-send:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Индикатор «печатает…» (три точки) */
+        .typing-dots {
+            display: inline-flex;
+            gap: 5px;
+            align-items: center;
+            padding: 4px 2px;
+        }
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #a29bfe;
+            animation: typingBlink 1.2s infinite ease-in-out;
+        }
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typingBlink {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
+        /* Утилита: скрытие панелей по умолчанию (перекрывает display:flex) */
+        [hidden] {
+            display: none !important;
+        }
+
         /* Статистика — внизу, выровнена по нижнему краю */
         .stats {
             background: rgba(0, 0, 0, 0.35);
@@ -804,6 +838,28 @@
             max-width: 720px;
             box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
             animation: modalIn 0.2s ease;
+        }
+
+        /* Модалка памяти — на всю ширину и высоту окна */
+        #memoryModal .modal {
+            max-width: none;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        /* Сетка памяти занимает 80% высоты модалки; списки колонок скроллятся внутри */
+        #memoryModal .memory-grid {
+            height: 80%;
+        }
+        #memoryModal .memory-col {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        #memoryModal .memory-list {
+            max-height: none;
+            flex: 1;
+            overflow-y: auto;
         }
 
         @keyframes modalIn {
@@ -1441,15 +1497,31 @@
                 </div>
             </details>
 
-            <label for="strategy">Стратегия контекста</label>
-            <select id="strategy">
-                <option value="sliding_window">Sliding Window — окно последних N</option>
-                <option value="sticky_facts">Sticky Facts — факты + окно N</option>
-                <option value="branching">Branching — ветки диалога</option>
-            </select>
+            <details class="params-group">
+                <summary>🧠 Стратегия контекста</summary>
+                <div class="group-body">
+                    <label for="strategy">Стратегия контекста</label>
+                    <select id="strategy">
+                        <option value="sliding_window">Sliding Window — окно последних N</option>
+                        <option value="sticky_facts">Sticky Facts — факты + окно N</option>
+                        <option value="branching">Branching — ветки диалога</option>
+                    </select>
 
-            <label for="window_size">Размер окна N</label>
-            <input type="number" id="window_size" value="5" step="1" min="1">
+                    <div id="windowSizeRow">
+                        <label for="window_size">Размер окна N</label>
+                        <input type="number" id="window_size" value="5" step="1" min="1">
+                    </div>
+
+                    <div class="branch-controls" id="branchControls">
+                        <div class="branch-row">
+                            <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
+                        </div>
+                        <div class="branch-row">
+                            <select id="branchSelect" title="Активная ветка"></select>
+                        </div>
+                    </div>
+                </div>
+            </details>
 
             <label class="checkbox-row">
                 <input type="checkbox" id="auto_suggest">
@@ -1493,15 +1565,6 @@
                 </div>
             </details>
 
-            <div class="branch-controls" id="branchControls">
-                <div class="branch-row">
-                    <button class="btn-branch" id="createBranchBtn">⤴ Checkpoint + 2 ветки</button>
-                </div>
-                <div class="branch-row">
-                    <select id="branchSelect" title="Активная ветка"></select>
-                </div>
-            </div>
-
             <button class="btn-reset" id="resetBtn">↺ Новый диалог</button>
         </div>
 
@@ -1520,25 +1583,15 @@
                 <button class="tool-btn" id="invariantOpenBtn">🛡 Инварианты
                     <span class="memory-badge" id="invariantBadge">0</span>
                 </button>
+                <button class="tool-btn" id="toggleStatsBtn" title="Показать/скрыть статистику">📊 Статистика</button>
+                <button class="tool-btn" id="toggleQuickBtn" title="Показать/скрыть быстрые действия">⚡ Быстрые</button>
             </div>
 
-            <div class="task-panel" id="taskPanel">
-                <div class="task-stepper" id="taskStepper"></div>
-                <div class="task-meta-row">
-                    <span class="task-meta" id="taskMeta">Задача не выбрана</span>
-                    <span class="task-buttons">
-                        <button class="task-btn" id="taskPauseBtn" title="Поставить на паузу">⏸</button>
-                        <button class="task-btn" id="taskResumeBtn" title="Продолжить">▶</button>
-                        <button class="task-btn" id="taskListBtn" title="Список задач">📋</button>
-                    </span>
-                </div>
-            </div>
-
-            <div class="context-summary" id="contextSummary"></div>
+            <div class="context-summary" id="contextSummary" hidden></div>
 
             <div class="chat-messages" id="chatMessages"></div>
 
-            <div class="quick-tools" id="quickTools">
+            <div class="quick-tools" id="quickTools" hidden>
                 <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
                 <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
                 <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
@@ -1550,7 +1603,7 @@
                 <button class="btn-send" id="sendBtn">➤ Отправить</button>
             </div>
 
-            <div class="stats" id="statsPanel">
+            <div class="stats" id="statsPanel" hidden>
                 <div class="stats-group">
                     <div class="stats-group-title">Текущий запрос</div>
                     <div class="stats-row">
@@ -1679,6 +1732,17 @@
             <div class="modal-title">🎯 Задачи (конечный автомат)</div>
             <button class="modal-close" data-close="taskModal" title="Закрыть">✕</button>
         </div>
+        <div class="task-panel" id="taskPanel">
+            <div class="task-stepper" id="taskStepper"></div>
+            <div class="task-meta-row">
+                <span class="task-meta" id="taskMeta">Задача не выбрана</span>
+                <span class="task-buttons">
+                    <button class="task-btn" id="taskPauseBtn" title="Поставить на паузу">⏸</button>
+                    <button class="task-btn" id="taskResumeBtn" title="Продолжить">▶</button>
+                    <button class="task-btn" id="taskListBtn" title="Список задач">📋</button>
+                </span>
+            </div>
+        </div>
         <div class="task-list" id="taskList"></div>
         <div class="task-actions">
             <button class="btn-mem-save" id="taskNewBtn">➕ Новая задача</button>
@@ -1746,6 +1810,7 @@
     const modelEl = document.getElementById('model');
     const strategyEl = document.getElementById('strategy');
     const windowSizeEl = document.getElementById('window_size');
+    const windowSizeRow = document.getElementById('windowSizeRow');
     const temperatureEl = document.getElementById('temperature');
     const topKEl = document.getElementById('top_k');
     const topPEl = document.getElementById('top_p');
@@ -1772,6 +1837,10 @@
     const statResponseTokens = document.getElementById('statResponseTokens');
     const statTotalTokens = document.getElementById('statTotalTokens');
     const statCost = document.getElementById('statCost');
+    const statsPanel = document.getElementById('statsPanel');
+    const quickTools = document.getElementById('quickTools');
+    const toggleStatsBtn = document.getElementById('toggleStatsBtn');
+    const toggleQuickBtn = document.getElementById('toggleQuickBtn');
     const contextSummary = document.getElementById('contextSummary');
     const branchControls = document.getElementById('branchControls');
     const branchSelect = document.getElementById('branchSelect');
@@ -1854,6 +1923,7 @@
 
     // === Состояние ===
     let history = [];
+    let sending = false;
     let branches = [];
     let currentBranchId = null;
     let sessionId = localStorage.getItem('agentSessionId') || null;
@@ -2031,46 +2101,6 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Показываем найденные чанки базы знаний (режим RAG), не входят в history.
-    function renderRagContext(ragContext) {
-        if (!ragContext) return;
-        if (ragContext.error) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.innerHTML = `<div class="avatar">📚</div><div class="bubble"><div class="tool-chip">⚠️ RAG недоступен: ${escapeHtml(ragContext.error)}</div></div>`;
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return;
-        }
-        const chunks = ragContext.chunks || [];
-        const mode = ragContext.mode ? ` · режим ${escapeHtml(ragContext.mode)}` : '';
-        const kept = ragContext.kept != null ? ` · kept ${ragContext.kept}` : '';
-        const dropped = (ragContext.dropped || []).length;
-        const droppedNote = dropped ? ` · отсечено ${dropped}` : '';
-        const rewritten = ragContext.rewritten_query
-            ? ` · запрос: «${escapeHtml(ragContext.rewritten_query)}»` : '';
-        const items = chunks.map(c => {
-            const score = c.score != null ? Number(c.score).toFixed(3) : '';
-            const title = escapeHtml(c.title || '');
-            const section = c.section ? ' · ' + escapeHtml(c.section) : '';
-            return `<li><span class="tool-server">${escapeHtml(c.source)}</span> — ${title}${section}${score ? ` <span class="tool-step">(score ${score})</span>` : ''}</li>`;
-        }).join('');
-        const div = document.createElement('div');
-        div.className = 'message assistant';
-        const head = chunks.length
-            ? `RAG — источники из базы знаний (${chunks.length})${mode}${kept}${droppedNote}${rewritten}`
-            : `RAG — релевантные чанки не найдены${mode}${droppedNote}${rewritten}`;
-        div.innerHTML = `
-        <div class="avatar">📚</div>
-        <div class="bubble">
-          <div class="tool-chip">${head}</div>
-          ${items ? `<ul style="margin:6px 0 0 18px;font-size:12px;color:#9aa4b2;">${items}</ul>` : ''}
-        </div>
-      `;
-        chatMessages.appendChild(div);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
     // Быстрое демо: заполнить поле и сразу отправить с включёнными инструментами.
     function quickBall() {
         const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
@@ -2169,6 +2199,16 @@
         pendingList.innerHTML = `<div class="pending-title">Предложения к подтверждению</div>${items}`;
     }
 
+    // Предложение считается новым, если в целевом слое памяти ещё нет записи с таким ключом.
+    function filterPending(list) {
+        const workingKeys = new Set((memory.working || []).map(e => e.key));
+        const longTermKeys = new Set((memory.long_term || []).map(e => e.key));
+        return (list || []).filter(s => {
+            const keys = s.layer === 'working' ? workingKeys : longTermKeys;
+            return !keys.has(s.key);
+        });
+    }
+
     // === Форма сохранения в память ===
     function updateMemoryForm() {
         const layer = memLayer.value;
@@ -2184,6 +2224,15 @@
     // === Сводка по контексту ===
     function updateBranchControlsVisibility() {
         branchControls.classList.toggle('visible', strategyEl.value === 'branching');
+    }
+
+    function updateWindowSizeVisibility() {
+        windowSizeRow.hidden = strategyEl.value === 'branching';
+    }
+
+    function updateStrategyControls() {
+        updateBranchControlsVisibility();
+        updateWindowSizeVisibility();
     }
 
     function renderBranches() {
@@ -2360,7 +2409,7 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({}),
             });
-            pendingMemory = data.pending_memory || [];
+            pendingMemory = filterPending(data.pending_memory || []);
             renderPending();
         } catch (err) {
             alert(`Ошибка генерации предложений памяти: ${err.message}`);
@@ -2829,8 +2878,33 @@
         if (inv) fillInvariantForm(inv);
     }
 
+    // === Индикация отправки ===
+    function setSending(on) {
+        sending = on;
+        sendBtn.disabled = on;
+        sendBtn.classList.toggle('sending', on);
+        sendBtn.textContent = on ? '⏳ …' : '➤ Отправить';
+        showTypingIndicator(on);
+    }
+
+    function showTypingIndicator(on) {
+        const existing = document.getElementById('typingIndicator');
+        if (on) {
+            if (existing) return;
+            const div = document.createElement('div');
+            div.id = 'typingIndicator';
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="avatar">🤖</div><div class="bubble"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } else if (existing) {
+            existing.remove();
+        }
+    }
+
     // === Отправка запроса ===
     async function sendRequest() {
+        if (sending) return;
         const userMessage = messageEl.value.trim();
         if (!userMessage) {
             alert('Введите сообщение');
@@ -2883,6 +2957,7 @@
         if (activeProfileId) payload.profile_id = activeProfileId;
         if (currentTaskId) payload.task_id = currentTaskId;
 
+        setSending(true);
         try {
             const data = await apiFetch(ENDPOINT, {
                 method: 'POST',
@@ -2909,10 +2984,9 @@
             }
             renderChat();
             renderToolCalls(data.tool_calls || []);
-            renderRagContext(data.rag_context);
 
             memory = data.memory || {working: [], long_term: []};
-            pendingMemory = data.pending_memory || [];
+            pendingMemory = filterPending(data.pending_memory || []);
             renderMemory();
             renderPending();
 
@@ -2940,6 +3014,8 @@
             alert(`Ошибка: ${err.message}`);
             history.pop();
             renderChat();
+        } finally {
+            setSending(false);
         }
     }
 
@@ -3018,7 +3094,7 @@
             if (data.window_size != null) windowSizeEl.value = data.window_size;
             const win = data.window_size || 5;
             renderBranches();
-            updateBranchControlsVisibility();
+            updateStrategyControls();
             renderMemory();
             renderPending();
             renderTask();
@@ -3059,7 +3135,7 @@
         });
         renderChat();
         renderBranches();
-        updateBranchControlsVisibility();
+        updateStrategyControls();
         updateStats(null, null, null);
         renderContext(null);
         renderMemory();
@@ -3102,8 +3178,17 @@
     pipelineBtn.addEventListener('click', quickPipeline);
     createBranchBtn.addEventListener('click', createBranches);
     branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
-    strategyEl.addEventListener('change', updateBranchControlsVisibility);
+    strategyEl.addEventListener('change', updateStrategyControls);
     ragEl.addEventListener('change', onRagToggle);
+    autoSuggestEl.addEventListener('change', () => {
+        localStorage.setItem('agentAutoSuggest', autoSuggestEl.checked ? '1' : '0');
+    });
+    enableToolsEl.addEventListener('change', () => {
+        localStorage.setItem('agentEnableTools', enableToolsEl.checked ? '1' : '0');
+    });
+    windowSizeEl.addEventListener('change', () => {
+        localStorage.setItem('agentWindowSize', windowSizeEl.value);
+    });
     memLayer.addEventListener('change', updateMemoryForm);
     memSaveBtn.addEventListener('click', saveMemoryFromForm);
     suggestBtn.addEventListener('click', suggestMemory);
@@ -3121,6 +3206,8 @@
     invSaveBtn.addEventListener('click', saveInvariant);
     invNewBtn.addEventListener('click', newInvariant);
     invariantOpenBtn.addEventListener('click', () => openModal('invariantModal'));
+    toggleStatsBtn.addEventListener('click', () => { statsPanel.hidden = !statsPanel.hidden; });
+    toggleQuickBtn.addEventListener('click', () => { quickTools.hidden = !quickTools.hidden; });
 
     // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
     document.querySelectorAll('.modal-overlay').forEach(ov => {
@@ -3183,11 +3270,17 @@
 
     // === Инициализация ===
     (async function init() {
-        updateBranchControlsVisibility();
+        updateStrategyControls();
         updateMemoryForm();
         // Восстановить режим RAG из localStorage (переключатель режима сессии).
         ragEl.checked = localStorage.getItem('agentRagMode') === '1';
         updateRagIndicator();
+        // Восстановить состояние чекбоксов памяти и инструментов.
+        autoSuggestEl.checked = localStorage.getItem('agentAutoSuggest') === '1';
+        enableToolsEl.checked = localStorage.getItem('agentEnableTools') !== '0';
+        // Восстановить размер окна N.
+        const savedWindowSize = parseInt(localStorage.getItem('agentWindowSize'), 10);
+        windowSizeEl.value = (Number.isFinite(savedWindowSize) && savedWindowSize >= 1) ? savedWindowSize : 5;
         // Профили — глобальные (не зависят от сессии), загружаем сразу.
         await loadProfiles();
         // Инварианты тоже видны сразу (глобальные и привязанные к сущностям).
