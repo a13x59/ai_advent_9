@@ -1245,6 +1245,34 @@
             margin-bottom: 6px;
         }
 
+        /* Блок источников в истории ответа */
+        .sources-box {
+            margin-top: 8px;
+            border-top: 1px solid rgba(108, 92, 231, 0.25);
+            padding-top: 6px;
+            font-size: 12px;
+        }
+        .sources-title {
+            font-weight: 700;
+            color: #a29bfe;
+        }
+        .sources-box ul {
+            margin: 4px 0 0 0;
+            padding-left: 18px;
+            color: #9aa7bd;
+        }
+
+        /* Индикатор режима RAG */
+        .rag-mode-indicator {
+            font-size: 11px;
+            font-weight: 700;
+            color: #9aa7bd;
+            margin: -4px 0 8px 26px;
+        }
+        .rag-mode-indicator.on {
+            color: #81ecec;
+        }
+
         .tool-step {
             color: #b8a7ff;
             font-weight: 700;
@@ -1437,6 +1465,7 @@
                 <input type="checkbox" id="rag">
                 📚 RAG — отвечать по базе знаний
             </label>
+            <div class="rag-mode-indicator" id="ragIndicator"></div>
 
             <details class="params-group" id="ragControls">
                 <summary>📚 Параметры RAG (реранкинг и фильтрация)</summary>
@@ -1725,6 +1754,7 @@
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
     const ragEl = document.getElementById('rag');
+    const ragIndicator = document.getElementById('ragIndicator');
     const ragModeEl = document.getElementById('rag_mode');
     const ragMinScoreEl = document.getElementById('rag_min_score');
     const ragTopKEl = document.getElementById('rag_top_k');
@@ -1797,12 +1827,13 @@
     const invSaveBtn = document.getElementById('invSaveBtn');
     const invNewBtn = document.getElementById('invNewBtn');
 
-    const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note'];
+    const WORKING_KINDS = ['goal', 'constraint', 'todo', 'result', 'context', 'note', 'clarification', 'term'];
     const WORKING_STATES = ['pending', 'in_progress', 'done', 'blocked'];
     const LONG_TERM_KINDS = ['profile', 'decision', 'knowledge', 'preference', 'agreement', 'fact'];
     const KIND_LABELS = {
         goal: 'цель', constraint: 'ограничение', todo: 'задача', result: 'результат',
-        context: 'контекст', note: 'заметка', profile: 'профиль', decision: 'решение',
+        context: 'контекст', note: 'заметка', clarification: 'уточнение', term: 'термин',
+        profile: 'профиль', decision: 'решение',
         knowledge: 'знание', preference: 'предпочтение', agreement: 'договорённость', fact: 'факт'
     };
     const STATE_LABELS = {pending: 'ожидает', in_progress: 'в работе', done: 'готово', blocked: 'заблокировано'};
@@ -1939,13 +1970,28 @@
             const body = msg.role === 'assistant'
                 ? renderMarkdown(msg.content)
                 : escapeHtml(msg.content);
+            const sources = msg.role === 'assistant' ? renderSources(msg.sources) : '';
             div.innerHTML = `
         <div class="avatar">${msg.role === 'user' ? '👤' : '🤖'}</div>
-        <div class="bubble">${chip}${body}</div>
+        <div class="bubble">${chip}${body}${sources}</div>
       `;
             chatMessages.appendChild(div);
         });
         chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Структурированные источники из истории (сохраняются в сообщении ассистента).
+    function renderSources(sources) {
+        if (!Array.isArray(sources) || !sources.length) return '';
+        const items = sources.map(s => {
+            const parts = [];
+            if (s.source) parts.push(`<span class="tool-server">${escapeHtml(s.source)}</span>`);
+            if (s.title) parts.push(escapeHtml(s.title));
+            if (s.section) parts.push(`раздел: ${escapeHtml(s.section)}`);
+            if (s.chunk_id) parts.push(`chunk: ${escapeHtml(s.chunk_id)}`);
+            return `<li>${parts.join(' · ')}</li>`;
+        }).join('');
+        return `<div class="sources-box"><span class="sources-title">📚 Источники</span><ul>${items}</ul></div>`;
     }
 
     // Показываем цепочку вызовов MCP-инструментов отдельными бейджами (не входят в history).
@@ -2851,13 +2897,15 @@
 
             // Если по этому сообщению завелась НОВАЯ задача — очищаем чат от
             // сообщений предыдущей задачи и показываем только новый обмен.
+            const assistantMsg = {role: 'assistant', content: data.response};
+            if (Array.isArray(data.sources)) assistantMsg.sources = data.sources;
             if (data.task && data.task.task_id !== prevTaskId) {
                 history = [
                     {role: 'user', content: userMessage},
-                    {role: 'assistant', content: data.response},
+                    assistantMsg,
                 ];
             } else {
-                history.push({role: 'assistant', content: data.response});
+                history.push(assistantMsg);
             }
             renderChat();
             renderToolCalls(data.tool_calls || []);
@@ -3026,6 +3074,25 @@
         await loadInvariants();
     }
 
+    // === Переключение режима RAG ===
+    // Включение/выключение RAG сбрасывает сессию: новая сессия работает уже в
+    // выбранном режиме (обычном или «по базе знаний»).
+    function updateRagIndicator() {
+        if (!ragIndicator) return;
+        const on = ragEl.checked;
+        ragIndicator.textContent = on
+            ? '● режим RAG включён — ответы ищутся в базе знаний'
+            : '○ режим RAG выключен — обычный диалог (без базы знаний)';
+        ragIndicator.classList.toggle('on', on);
+    }
+
+    async function onRagToggle() {
+        localStorage.setItem('agentRagMode', ragEl.checked ? '1' : '0');
+        updateRagIndicator();
+        if (!sessionId) return; // активной сессии нет — сбрасывать нечего
+        await resetChat();
+    }
+
     // === Обработчики ===
     sendBtn.addEventListener('click', sendRequest);
     resetBtn.addEventListener('click', resetChat);
@@ -3036,6 +3103,7 @@
     createBranchBtn.addEventListener('click', createBranches);
     branchSelect.addEventListener('change', (e) => switchBranch(e.target.value));
     strategyEl.addEventListener('change', updateBranchControlsVisibility);
+    ragEl.addEventListener('change', onRagToggle);
     memLayer.addEventListener('change', updateMemoryForm);
     memSaveBtn.addEventListener('click', saveMemoryFromForm);
     suggestBtn.addEventListener('click', suggestMemory);
@@ -3117,6 +3185,9 @@
     (async function init() {
         updateBranchControlsVisibility();
         updateMemoryForm();
+        // Восстановить режим RAG из localStorage (переключатель режима сессии).
+        ragEl.checked = localStorage.getItem('agentRagMode') === '1';
+        updateRagIndicator();
         // Профили — глобальные (не зависят от сессии), загружаем сразу.
         await loadProfiles();
         // Инварианты тоже видны сразу (глобальные и привязанные к сущностям).

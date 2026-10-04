@@ -33,7 +33,7 @@ DB_PATH = os.environ.get(
 )
 
 # Допустимые значения kind/state (для валидации и подсказок в UI).
-WORKING_KINDS = {"goal", "constraint", "todo", "result", "context", "note"}
+WORKING_KINDS = {"goal", "constraint", "todo", "result", "context", "note", "clarification", "term"}
 WORKING_STATES = {"pending", "in_progress", "done", "blocked"}
 LONG_TERM_KINDS = {"profile", "decision", "knowledge", "preference", "agreement", "fact"}
 

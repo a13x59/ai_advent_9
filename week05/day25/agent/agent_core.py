@@ -108,7 +108,7 @@ SUGGEST_PROMPT = (
     "Имена полей элементов ДОЛЖНЫ быть на английском языке: \"key\", \"value\", \"kind\". "
     "Сами значения ключа и содержимого могут быть на русском.\n"
     "working — данные ТЕКУЩЕЙ задачи: поля key (ключ), value (значение), kind, state.\n"
-    "  kind ∈ {goal, constraint, todo, result, context, note}; "
+    "  kind ∈ {goal, constraint, todo, result, context, note, clarification, term}; "
     "state ∈ {pending, in_progress, done, blocked} или null.\n"
     "long_term — профиль/решения/знания: поля key, value, kind, tags.\n"
     "  kind ∈ {profile, decision, knowledge, preference, agreement, fact}; "
@@ -1170,6 +1170,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             # 4.1 RAG: дополнить контекст найденными чанками (режим «с RAG»).
             rag_context = None
             rag_abstain = False
+            rag_sources = []
             if request.rag and rag_retriever is not None and user_text:
                 try:
                     rag_result = rag_retriever.retrieve(
@@ -1199,6 +1200,17 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                         "mode": request.rag_mode,
                         "below_relevance": below,
                     }
+                    rag_sources = [
+                        {
+                            "n": i,
+                            "source": (c.get("source") or ""),
+                            "title": (c.get("title") or ""),
+                            "section": (c.get("section") or ""),
+                            "chunk_id": (c.get("chunk_id") or ""),
+                            "score": c.get("score"),
+                        }
+                        for i, c in enumerate(rag_chunks or [], 1)
+                    ]
                     if isinstance(rag_result, dict):
                         for key in ("rewritten_query", "original_query", "candidates",
                                     "kept", "dropped", "max_score", "relevance_threshold"):
@@ -1275,11 +1287,13 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 history_tokens = raw_context_tokens
             total_tokens = prompt_tokens + completion_tokens
 
-            # 6. Сохраняем ответ в историю.
+            # 6. Сохраняем ответ в историю (с источниками, если был RAG).
+            assistant_msg = {"role": "assistant", "content": content}
+            if request.rag and not refused:
+                assistant_msg["sources"] = rag_sources
             if refused:
-                conversation.append({"role": "assistant", "content": content, "invariant_refusal": True})
-            else:
-                conversation.append({"role": "assistant", "content": content})
+                assistant_msg["invariant_refusal"] = True
+            conversation.append(assistant_msg)
             if task is not None:
                 store.save_task_messages(task["task_id"], conversation)
             else:
@@ -1321,6 +1335,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 "tools_active": tools_active,
                 "rag_context": rag_context,
                 "rag_abstained": rag_abstain,
+                "sources": rag_sources,
                 "pending_memory": pending_memory,
                 "memory_ops_applied": memory_ops_applied,
                 "duration": round(duration, 3),
