@@ -78,6 +78,10 @@ MAX_TRANSITION_RETRIES = 2
 # deepseek-reasoner и легаси-модели (coder/v4-flash) его не поддерживают.
 TOOL_CAPABLE_MODELS = {"deepseek-chat"}
 
+# Префиксы имён локальных моделей (Ollama и т.п.), поддерживающих function calling.
+# Используется в _tools_enabled: локальные модели тоже умеют вызывать MCP-инструменты.
+LOCAL_TOOL_CAPABLE_PREFIXES = ("llama",)
+
 # Максимальное число раундов вызова инструментов в многокруговом цикле
 # _run_tool_loop (цепочка search → summarize → save_to_file). Защита от зацикливания.
 MAX_TOOL_CYCLES = 8
@@ -521,7 +525,8 @@ def _tools_enabled(request: AgentRequest, mcp_clients) -> bool:
         return False
     if not getattr(request, "enable_tools", False):
         return False
-    return (getattr(request, "model", "") or "").strip() in TOOL_CAPABLE_MODELS
+    model = (getattr(request, "model", "") or "").strip()
+    return model in TOOL_CAPABLE_MODELS or model.lower().startswith(LOCAL_TOOL_CAPABLE_PREFIXES)
 
 
 def _normalize_mcp_clients(mcp_client, mcp_clients) -> List:

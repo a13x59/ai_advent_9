@@ -1456,18 +1456,25 @@
 <div class="app-container">
     <h1>
         🤖 AI Agent
-        <span class="badge">DeepSeek</span>
+        <span class="badge" id="backendBadge">DeepSeek</span>
         <span class="badge" style="background: linear-gradient(135deg,#00b894,#00cec9)">Memory Layers</span>
     </h1>
     <div class="main-grid">
         <!-- Левая панель: настройки -->
         <div class="params-panel">
+            <label for="backend">Бэкенд модели</label>
+            <select id="backend">
+                <option value="cloud" selected>☁️ DeepSeek — облако (:8000)</option>
+                <option value="local">🖥️ Llama 3.1 — локально (:8002)</option>
+            </select>
+
             <label for="model">Модель *</label>
             <select id="model">
                 <option value="deepseek-chat">deepseek-chat</option>
                 <option value="deepseek-reasoner">deepseek-reasoner</option>
                 <option value="deepseek-v4-flash">deepseek-v4-flash</option>
                 <option value="deepseek-coder">deepseek-coder</option>
+                <option value="llama3.1">llama3.1 (локальная)</option>
             </select>
 
             <!-- Группа параметров модели — свёрнута по умолчанию -->
@@ -1802,12 +1809,17 @@
 
 <script>
     // === Конфигурация ===
-    const API_BASE = 'http://localhost:8000';
+    const BACKENDS = {
+        cloud: { base: 'http://localhost:8000', model: 'deepseek-chat', badge: 'DeepSeek' },
+        local: { base: 'http://localhost:8002', model: 'llama3.1', badge: 'Llama 3.1 (локально)' },
+    };
+    let API_BASE = BACKENDS.cloud.base;
     const ENDPOINT = '/agent';
 
     // === Элементы DOM ===
     const messageEl = document.getElementById('message');
     const modelEl = document.getElementById('model');
+    const backendEl = document.getElementById('backend');
     const strategyEl = document.getElementById('strategy');
     const windowSizeEl = document.getElementById('window_size');
     const windowSizeRow = document.getElementById('windowSizeRow');
@@ -3170,6 +3182,13 @@
     }
 
     // === Обработчики ===
+    backendEl.addEventListener('change', (e) => {
+        const cfg = BACKENDS[e.target.value] || BACKENDS.cloud;
+        API_BASE = cfg.base;
+        modelEl.value = cfg.model;
+        const badge = document.getElementById('backendBadge');
+        if (badge) badge.textContent = cfg.badge;
+    });
     sendBtn.addEventListener('click', sendRequest);
     resetBtn.addEventListener('click', resetChat);
     ballBtn.addEventListener('click', quickBall);
