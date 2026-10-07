@@ -1,0 +1,9 @@
+.venv/
+models_cache/
+__pycache__/
+*.pyc
+indexes/*.faiss
+indexes/*.db
+indexes/*.json
+reports/metrics.json
+.DS_Store
