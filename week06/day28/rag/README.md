@@ -197,6 +197,44 @@ uvicorn src.server:app --host 0.0.0.0 --port 8891
 использованными источниками и метаданными второго этапа (mode, kept, dropped,
 rewritten_query, max_score, below_relevance).
 
+## Локальная LLM в генерации (День 28)
+
+Провайдер генерации вынесен в `src/llm.py` и выбирается переменной
+`RAG_LLM_PROVIDER`:
+
+| Значение | Бэкенд | Где выполняется генерация |
+|---|---|---|
+| `deepseek` (по умолчанию) | DeepSeek API | облако |
+| `ollama` | Ollama `/v1/chat/completions` | локально |
+
+Настройки локального провайдера (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`,
+`OLLAMA_TIMEOUT`) читаются из корневого `.env`; по умолчанию
+`http://127.0.0.1:11434` и модель `llama3.1`.
+
+- `src/qa.py` — `answer_plain` / `answer_rag` / `rewrite_query` теперь принимают
+  параметр `provider` и возвращают `dict` с полем `answer` + метаданными вызова
+  (`provider`, `model`, `usage`, `duration_ms`, `tokens_per_sec`).
+- `src/judge.py` — судья качества использует отдельный бэкенд
+  `JUDGE_LLM_PROVIDER` (по умолчанию `deepseek`), чтобы «независимый арбитр»
+  не зависел от сравниваемого генератора.
+- `src/server.py` — добавлен эндпоинт `POST /answer` (генерация с RAG или без
+  через настроенный провайдер), поэтому RAG-система может отвечать локально
+  как сервис.
+
+```bash
+# полностью локальный ответ (ретрив локально + генерация через Ollama)
+RAG_LLM_PROVIDER=ollama python -m src.compare_llm --providers local
+
+# сравнение локальной и облачной генерации (качество/скорость/стабильность)
+python -m src.compare_llm --runs 3
+```
+
+`src/compare_llm.py` прогоняет контрольные вопросы `data/golden.json` через оба
+бэкенда (local=ollama, cloud=deepseek) с N повторами, фиксирует длительность,
+токены/сек и ошибки, оценивает качество фиксированным судьёй и пишет
+`reports/llm_comparison.json` / `reports/llm_comparison.md`. Retrieval в обоих
+случаях локальный и идентичный, поэтому различия относятся только к генератору.
+
 ## Цитаты, источники и режим «не знаю» (День 24)
 
 Модель обязана возвращать ответ + список источников + дословные цитаты, а при

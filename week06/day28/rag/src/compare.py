@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     for i, q in enumerate(questions, 1):
         question = q["question"]
         print(f"\n[{i}/{len(questions)}] {question}")
-        plain = answer_plain(question)
+        plain = answer_plain(question)["answer"]
         modes_data: dict = {}
         for mode in modes:
             rag = answer_rag(

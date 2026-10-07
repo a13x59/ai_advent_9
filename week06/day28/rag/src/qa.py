@@ -3,25 +3,19 @@
 Реализует цепочку из задания:
     вопрос → поиск релевантных чанков → объединение с вопросом → запрос к LLM.
 
-answer_plain — прямой запрос к DeepSeek без контекста базы;
-answer_rag    — ретрив чанков + промпт с контекстом + запрос к DeepSeek.
+answer_plain — прямой запрос к модели без контекста базы;
+answer_rag    — ретрив чанков + промпт с контекстом + запрос к модели.
+
+Модель выбирается через провайдер из src/llm.py: RAG_LLM_PROVIDER=deepseek
+(облако) или ollama (локально). Обе функции принимают параметр `provider` для
+явного выбора бэкенда и возвращают dict с полем `answer` + метаданными вызова
+(provider, model, usage, duration_ms, tokens_per_sec) — это нужно для сравнения
+локальной и облачной генерации (День 28).
 """
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-import requests
-from dotenv import load_dotenv
-
+from .llm import call_llm_rich
 from .retrieval import retrieve_with_mode
-
-# Единый источник ключа — корневой .env (day22/.env), не зависит от рабочей папки.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
-
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEFAULT_MODEL = os.environ.get("RAG_LLM_MODEL", "deepseek-chat")
 
 PLAIN_SYSTEM = "Ты — ассистент, отвечаешь кратко и по существу."
 RAG_SYSTEM = (
@@ -31,25 +25,23 @@ RAG_SYSTEM = (
     "цитатой; источники указывай с source, section и chunk_id. Без дословной цитаты "
     "утверждение писать нельзя."
 )
+REWRITE_SYSTEM = (
+    "Ты — помощник поискового движка. Переформулируй вопрос пользователя в "
+    "самодостаточный поисковый запрос на русском языке: раскрой местоимения и "
+    "неоднозначности, добавь ключевые термины и синонимы, сохрани исходный смысл. "
+    "Верни ТОЛЬКО итоговый запрос, без пояснений и кавычек."
+)
 
 
-def call_llm(messages: list[dict], temperature: float = 0.0,
-             max_tokens: int = 1024) -> str:
-    """Один вызов DeepSeek chat/completions, возвращает текст ответа."""
-    if not API_KEY:
-        raise RuntimeError("Не задан DEEPSEEK_API_KEY")
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": DEFAULT_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
+def _gen_meta(res: dict) -> dict:
+    """Достаёт из rich-результата вызова модели поля для ответа."""
+    return {
+        "provider": res.get("provider"),
+        "model": res.get("model"),
+        "usage": res.get("usage", {}),
+        "duration_ms": res.get("duration_ms"),
+        "tokens_per_sec": res.get("tokens_per_sec"),
     }
-    resp = requests.post(DEEPSEEK_API_URL, json=payload, headers=headers, timeout=120)
-    if resp.status_code != 200:
-        raise RuntimeError(f"DeepSeek API error {resp.status_code}: {resp.text}")
-    data = resp.json()
-    return data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
 
 
 def build_rag_prompt(question: str, chunks: list[dict]) -> str:
@@ -116,45 +108,45 @@ def build_abstain_answer(question: str, max_score: float | None = None) -> str:
     )
 
 
-def answer_plain(question: str, temperature: float = 0.0, max_tokens: int = 1024) -> str:
+def answer_plain(question: str, temperature: float = 0.0, max_tokens: int = 1024,
+                 provider: str | None = None) -> dict:
     """Ответ модели БЕЗ RAG — только вопрос, без контекста базы."""
     messages = [
         {"role": "system", "content": PLAIN_SYSTEM},
         {"role": "user", "content": question},
     ]
-    return call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+    res = call_llm_rich(messages, temperature=temperature, max_tokens=max_tokens,
+                        provider=provider)
+    return {"answer": res["content"], **_gen_meta(res)}
 
 
-REWRITE_SYSTEM = (
-    "Ты — помощник поискового движка. Переформулируй вопрос пользователя в "
-    "самодостаточный поисковый запрос на русском языке: раскрой местоимения и "
-    "неоднозначности, добавь ключевые термины и синонимы, сохрани исходный смысл. "
-    "Верни ТОЛЬКО итоговый запрос, без пояснений и кавычек."
-)
-
-
-def rewrite_query(question: str, temperature: float = 0.0, max_tokens: int = 256) -> str:
+def rewrite_query(question: str, temperature: float = 0.0, max_tokens: int = 256,
+                  provider: str | None = None) -> str:
     """LLM-переформулировка вопроса в поисковый запрос (этап до ретрива)."""
     messages = [
         {"role": "system", "content": REWRITE_SYSTEM},
         {"role": "user", "content": question},
     ]
-    return call_llm(messages, temperature=temperature, max_tokens=max_tokens).strip()
+    res = call_llm_rich(messages, temperature=temperature, max_tokens=max_tokens,
+                        provider=provider)
+    return res["content"].strip()
 
 
 def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
                embedder=None, mode: str = "baseline", top_k_candidates: int | None = None,
                min_score: float | None = None, temperature: float = 0.0,
-               max_tokens: int = 1024) -> dict:
+               max_tokens: int = 1024, provider: str | None = None) -> dict:
     """Ответ модели С RAG: (rewrite?) → ретрив → (filter/rerank?) → промпт → LLM.
 
     mode ∈ {baseline, rewrite, filter, rewrite+filter, rerank}.
-    Возвращает dict с answer, chunks и трейсом второго этапа (для отчёта).
+    provider ∈ {deepseek, ollama, None(по умолчанию)} — выбор генератора.
+    Возвращает dict с answer, chunks, трейсом второго этапа и метаданными вызова
+    (provider, model, usage, duration_ms, tokens_per_sec).
     """
     query = question
     rewritten = None
     if mode in ("rewrite", "rewrite+filter"):
-        rewritten = rewrite_query(question)
+        rewritten = rewrite_query(question, provider=provider)
         query = rewritten
 
     result = retrieve_with_mode(
@@ -180,6 +172,11 @@ def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
             "max_score": result.get("max_score"),
             "below_relevance": below_relevance,
             "abstained": True,
+            "provider": None,
+            "model": None,
+            "usage": {},
+            "duration_ms": 0.0,
+            "tokens_per_sec": None,
         }
 
     # В промпт всегда идёт ИСХОДНЫЙ вопрос пользователя; переформулировка
@@ -189,9 +186,10 @@ def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
         {"role": "system", "content": RAG_SYSTEM},
         {"role": "user", "content": prompt},
     ]
-    answer = call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+    res = call_llm_rich(messages, temperature=temperature, max_tokens=max_tokens,
+                        provider=provider)
     return {
-        "answer": answer,
+        "answer": res["content"],
         "chunks": chunks,
         "strategy": strategy,
         "top_k": top_k,
@@ -204,4 +202,5 @@ def answer_rag(question: str, strategy: str = "structural", top_k: int = 5,
         "max_score": result.get("max_score"),
         "below_relevance": below_relevance,
         "abstained": False,
+        **_gen_meta(res),
     }

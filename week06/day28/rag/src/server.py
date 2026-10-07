@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import config
 from .embedder import Embedder
-from .qa import rewrite_query
+from .qa import answer_plain, answer_rag, rewrite_query
 from .retrieval import retrieve_with_mode
 
 logger = logging.getLogger("rag.server")
@@ -40,6 +40,18 @@ class RetrieveRequest(BaseModel):
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0,
                                        description="Порог отсечения (filter-режим)")
     mode: str = Field("baseline", description="baseline|rewrite|filter|rewrite+filter|rerank")
+
+
+class AnswerRequest(BaseModel):
+    question: str = Field(..., description="Вопрос пользователя")
+    rag: bool = Field(True, description="True — с RAG (ретрив + контекст), False — без RAG")
+    strategy: str = Field("structural", description="fixed | structural")
+    top_k: int = Field(5, ge=1, le=50)
+    top_k_candidates: Optional[int] = Field(None, ge=1, le=200)
+    min_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    mode: str = Field("baseline", description="baseline|rewrite|filter|rewrite+filter|rerank")
+    temperature: float = Field(0.0, ge=0.0, le=2.0)
+    max_tokens: int = Field(1024, ge=1, le=4096)
 
 
 def _get_embedder() -> Embedder:
@@ -79,3 +91,27 @@ def retrieve_endpoint(req: RetrieveRequest):
     result["original_query"] = req.query
     result["rewritten_query"] = rewritten
     return result
+
+
+@app.post("/answer")
+def answer_endpoint(req: AnswerRequest):
+    """Генерация ответа (с RAG или без) через настроенный LLM-провайдер.
+
+    Бэкенд генерации определяется переменной RAG_LLM_PROVIDER (deepseek|ollama),
+    поэтому этот эндпоинт позволяет получить полностью локальный ответ
+    (локальный ретрив + локальная генерация) при RAG_LLM_PROVIDER=ollama.
+    """
+    if req.strategy not in ("fixed", "structural"):
+        raise HTTPException(status_code=400, detail="strategy должен быть fixed|structural")
+    if req.mode not in config.MODES:
+        raise HTTPException(status_code=400, detail=f"mode должен быть один из {config.MODES}")
+
+    if req.rag:
+        return answer_rag(
+            req.question, strategy=req.strategy, top_k=req.top_k, mode=req.mode,
+            top_k_candidates=req.top_k_candidates, min_score=req.min_score,
+            temperature=req.temperature, max_tokens=req.max_tokens,
+            embedder=_get_embedder(),
+        )
+    return answer_plain(req.question, temperature=req.temperature,
+                        max_tokens=req.max_tokens)

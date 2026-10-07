@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-from .qa import call_llm
+from .llm import JUDGE_PROVIDER, call_llm
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_DIR = ROOT / "reports"
@@ -46,7 +46,7 @@ def judge_answer(question: str, expectation: str, answer: str) -> dict:
     prompt = JUDGE_PROMPT.format(question=question, expectation=expectation, answer=answer)
     raw = call_llm(
         [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": prompt}],
-        temperature=0.0, max_tokens=256,
+        temperature=0.0, max_tokens=256, provider=JUDGE_PROVIDER,
     )
     try:
         obj = json.loads(raw)
@@ -84,7 +84,7 @@ def judge_groundedness(question: str, answer: str, citations: str) -> dict:
     prompt = GROUNDED_PROMPT.format(question=question, answer=answer, citations=citations)
     raw = call_llm(
         [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": prompt}],
-        temperature=0.0, max_tokens=256,
+        temperature=0.0, max_tokens=256, provider=JUDGE_PROVIDER,
     )
     try:
         obj = json.loads(raw)
