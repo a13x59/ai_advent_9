@@ -1498,6 +1498,10 @@
                             <label for="max_tokens">max_tokens</label>
                             <input type="number" id="max_tokens" value="4096" step="1" min="1" max="8192">
                         </div>
+                        <div>
+                            <label for="num_ctx">num_ctx (окно)</label>
+                            <input type="number" id="num_ctx" value="32768" step="1" min="256" max="131072">
+                        </div>
                     </div>
                     <label for="stop">Стоп-последовательность (через запятую)</label>
                     <input type="text" id="stop" placeholder="например: stop1, stop2">
@@ -1828,6 +1832,7 @@
     const topPEl = document.getElementById('top_p');
     const stopEl = document.getElementById('stop');
     const maxTokensEl = document.getElementById('max_tokens');
+    const numCtxEl = document.getElementById('num_ctx');
     const autoSuggestEl = document.getElementById('auto_suggest');
     const enableToolsEl = document.getElementById('enable_tools');
     const ragEl = document.getElementById('rag');
@@ -2956,6 +2961,7 @@
             top_k: topK,
             top_p: topP,
             max_tokens: maxTokens,
+            num_ctx: parseInt(numCtxEl.value) || 32768,
             auto_suggest_memory: autoSuggestEl.checked,
             enable_tools: enableToolsEl.checked,
             rag: ragEl.checked,

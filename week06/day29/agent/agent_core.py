@@ -165,6 +165,7 @@ class AgentRequest(BaseModel):
     top_p: Optional[float] = Field(1.0, ge=0.0, le=1.0)
     stop: Optional[Union[str, List[str]]] = None
     max_tokens: Optional[int] = Field(4096, ge=1, le=8192)
+    num_ctx: Optional[int] = Field(None, ge=256, le=131072, description="Контекстное окно (локальные модели Ollama); None — дефолт сервера")
     memory_ops: List[dict] = Field([], description="Явные операции над памятью (save/delete/move)")
     auto_suggest_memory: bool = Field(False, description="Генерировать предложения памяти после запроса")
     enable_tools: bool = Field(False, description="Разрешить вызов MCP-инструментов (function calling)")

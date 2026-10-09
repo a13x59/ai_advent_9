@@ -56,9 +56,22 @@ def _resolve_model(requested: str) -> str:
     return requested
 
 
-def call_ollama_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096,
-                    stop=None, tools=None):
-    """Один вызов Ollama /v1/chat/completions. Возвращает DeepSeek-совместимый dict."""
+def _native_to_compat(data: dict) -> dict:
+    """Нативный /api/chat → DeepSeek-совместимый dict (choices + usage)."""
+    msg = data.get("message") or {}
+    return {
+        "choices": [{
+            "message": {"role": "assistant", "content": msg.get("content") or ""},
+        }],
+        "usage": {
+            "prompt_tokens": data.get("prompt_eval_count"),
+            "completion_tokens": data.get("eval_count"),
+        },
+    }
+
+
+def _call_openai_compat(messages, model, temperature, top_p, max_tokens, stop, tools):
+    """Вызов OpenAI-совместимого /v1/chat/completions (нужен для function calling)."""
     payload = {
         "model": _resolve_model(model),
         "messages": messages,
@@ -82,6 +95,50 @@ def call_ollama_raw(messages, model, temperature=1.0, top_p=1.0, max_tokens=4096
     return response.json()
 
 
+def call_ollama_raw(messages, model, temperature=1.0, top_p=1.0, top_k=0,
+                    num_ctx=None, max_tokens=4096, stop=None, tools=None):
+    """Один вызов Ollama. Возвращает DeepSeek-совместимый dict.
+
+    Без инструментов используется НАТИВНЫЙ /api/chat: он принимает полный набор
+    options, включая num_ctx и top_k (OpenAI-совместимый эндпоинт их игнорирует).
+    С инструментами — OpenAI-совместимый /v1/chat/completions, где работает
+    нативный function calling (num_ctx/top_k там не передаются — ограничение Ollama).
+    """
+    if tools:
+        return _call_openai_compat(messages, model, temperature, top_p, max_tokens, stop, tools)
+
+    options = {}
+    if temperature is not None:
+        options["temperature"] = temperature
+    if top_p is not None:
+        options["top_p"] = top_p
+    if top_k is not None:
+        options["top_k"] = top_k
+    if max_tokens is not None:
+        options["num_predict"] = max_tokens
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
+    if stop is not None:
+        options["stop"] = [stop] if isinstance(stop, str) else stop
+
+    payload = {
+        "model": _resolve_model(model),
+        "messages": messages,
+        "stream": False,
+        "options": options,
+    }
+
+    response = requests.post(
+        OLLAMA_BASE_URL + "/api/chat",
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=OLLAMA_TIMEOUT,
+    )
+    if response.status_code != 200:
+        raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
+    return _native_to_compat(response.json())
+
+
 class LocalOllamaProvider(AgentProvider):
     """Провайдер: все обращения к модели — в локальный сервер Ollama."""
 
@@ -93,6 +150,8 @@ class LocalOllamaProvider(AgentProvider):
             model=request.model,
             temperature=request.temperature,
             top_p=request.top_p,
+            top_k=request.top_k,
+            num_ctx=request.num_ctx,
             max_tokens=request.max_tokens,
             stop=request.stop,
             tools=tools,

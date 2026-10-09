@@ -60,4 +60,4 @@
 Чего не хватает в текущей реализации? Составь список и план реализации, но пока не делай, давай обсудим.
 
 ## Тестовый пример
-todo
+/Users/alexbaev/IdeaProjects/ai_advent_9/week06/day29/llm-optimization/reports
