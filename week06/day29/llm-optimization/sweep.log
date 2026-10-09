@@ -1,0 +1,442 @@
+=== Грубый перебор: 13 конфигураций × 5 вопросов × 1 повтор ===
+  [temp=0.0/q1/1] ok · 20837.5 мс · 22.59 ток/с · ctx 2407
+  [temp=0.0/q2/1] ok · 29839.7 мс · 22.58 ток/с · ctx 2157
+  [temp=0.0/q3/1] ok · 18405.7 мс · 22.83 ток/с · ctx 2001
+  [temp=0.0/q5/1] ok · 29155.1 мс · 0.8 ток/с · ctx 2374
+  [temp=0.0/q10/1] ok · 11115.6 мс · 22.66 ток/с · ctx 1456
+  [temp=0.2/q1/1] ok · 9635.4 мс · 21.61 ток/с · ctx 2407
+  [temp=0.2/q2/1] ok · 22899.4 мс · 22.43 ток/с · ctx 2157
+  [temp=0.2/q3/1] ok · 8508.5 мс · 22.87 ток/с · ctx 2001
+  [temp=0.2/q5/1] ok · 18970.1 мс · 22.55 ток/с · ctx 2374
+  [temp=0.2/q10/1] ok · 6969.3 мс · 22.7 ток/с · ctx 1456
+  [temp=1.0/q1/1] ok · 17918.2 мс · 20.62 ток/с · ctx 2407
+  [temp=1.0/q2/1] ok · 37483.2 мс · 21.27 ток/с · ctx 2157
+  [temp=1.0/q3/1] ok · 12842.1 мс · 21.03 ток/с · ctx 2001
+  [temp=1.0/q5/1] ok · 14972.3 мс · 22.2 ток/с · ctx 2374
+  [temp=1.0/q10/1] ok · 11241.2 мс · 23.23 ток/с · ctx 1456
+  [top_k=0 (temp=0.2)/q1/1] ok · 15723.0 мс · 22.21 ток/с · ctx 2407
+  [top_k=0 (temp=0.2)/q2/1] ok · 22798.7 мс · 22.53 ток/с · ctx 2157
+  [top_k=0 (temp=0.2)/q3/1] ok · 9089.8 мс · 21.56 ток/с · ctx 2001
+  [top_k=0 (temp=0.2)/q5/1] ok · 19572.9 мс · 21.48 ток/с · ctx 2374
+  [top_k=0 (temp=0.2)/q10/1] ok · 6757.1 мс · 23.42 ток/с · ctx 1456
+  [top_k=40 (temp=0.2)/q1/1] ok · 9214.6 мс · 22.48 ток/с · ctx 2407
+  [top_k=40 (temp=0.2)/q2/1] ok · 22794.7 мс · 22.54 ток/с · ctx 2157
+  [top_k=40 (temp=0.2)/q3/1] ok · 10837.4 мс · 23.11 ток/с · ctx 2001
+  [top_k=40 (temp=0.2)/q5/1] ok · 20460.7 мс · 22.26 ток/с · ctx 2374
+  [top_k=40 (temp=0.2)/q10/1] ok · 6637.2 мс · 23.67 ток/с · ctx 1456
+  [max_tokens=256/q1/1] ok · 9223.3 мс · 22.47 ток/с · ctx 2407
+  [max_tokens=256/q2/1] ok · 11541.9 мс · 22.42 ток/с · ctx 2157
+  [max_tokens=256/q3/1] ok · 11202.1 мс · 23.04 ток/с · ctx 2001
+  [max_tokens=256/q5/1] ok · 11428.6 мс · 22.62 ток/с · ctx 2374
+  [max_tokens=256/q10/1] ok · 6838.1 мс · 22.83 ток/с · ctx 1456
+  [max_tokens=512/q1/1] ok · 9270.1 мс · 22.35 ток/с · ctx 2407
+  [max_tokens=512/q2/1] ok · 22924.6 мс · 22.39 ток/с · ctx 2157
+  [max_tokens=512/q3/1] ok · 11884.4 мс · 22.83 ток/с · ctx 2001
+  [max_tokens=512/q5/1] ok · 18979.7 мс · 22.67 ток/с · ctx 2374
+  [max_tokens=512/q10/1] ok · 6692.6 мс · 23.32 ток/с · ctx 1456
+  [max_tokens=1024/q1/1] ok · 9290.5 мс · 22.28 ток/с · ctx 2407
+  [max_tokens=1024/q2/1] ok · 23069.4 мс · 22.25 ток/с · ctx 2157
+  [max_tokens=1024/q3/1] ok · 11642.7 мс · 23.29 ток/с · ctx 2001
+  [max_tokens=1024/q5/1] ok · 18937.0 мс · 22.72 ток/с · ctx 2374
+  [max_tokens=1024/q10/1] ok · 6558.0 мс · 23.76 ток/с · ctx 1456
+  [max_tokens=2048/q1/1] ok · 9141.1 мс · 22.65 ток/с · ctx 2407
+  [max_tokens=2048/q2/1] ok · 22693.6 мс · 22.62 ток/с · ctx 2157
+  [max_tokens=2048/q3/1] ok · 11646.2 мс · 23.3 ток/с · ctx 2001
+  [max_tokens=2048/q5/1] ok · 18710.8 мс · 23.0 ток/с · ctx 2374
+  [max_tokens=2048/q10/1] ok · 6758.1 мс · 23.06 ток/с · ctx 1456
+  [num_ctx=2048/q1/1] ok · 12850.9 мс · 23.94 ток/с · ctx 1026
+  [num_ctx=2048/q2/1] ok · 8501.6 мс · 23.1 ток/с · ctx 1026
+  [num_ctx=2048/q3/1] ok · 13130.9 мс · 23.39 ток/с · ctx 2001
+  [num_ctx=2048/q5/1] ok · 10535.6 мс · 23.52 ток/с · ctx 1026
+  [num_ctx=2048/q10/1] ok · 12620.3 мс · 23.66 ток/с · ctx 1456
+  [num_ctx=4096/q1/1] ok · 20596.0 мс · 23.01 ток/с · ctx 2407
+  [num_ctx=4096/q2/1] ok · 29622.4 мс · 22.77 ток/с · ctx 2157
+  [num_ctx=4096/q3/1] ok · 18274.8 мс · 23.28 ток/с · ctx 2001
+  [num_ctx=4096/q5/1] ok · 27003.1 мс · 22.72 ток/с · ctx 2374
+  [num_ctx=4096/q10/1] ok · 10816.1 мс · 23.34 ток/с · ctx 1456
+  [num_ctx=8192/q1/1] ok · 22447.8 мс · 20.57 ток/с · ctx 2407
+  [num_ctx=8192/q2/1] ok · 30281.8 мс · 22.73 ток/с · ctx 2157
+  [num_ctx=8192/q3/1] ok · 18552.8 мс · 23.09 ток/с · ctx 2001
+  [num_ctx=8192/q5/1] ok · 28022.5 мс · 22.27 ток/с · ctx 2374
+  [num_ctx=8192/q10/1] ok · 11276.5 мс · 22.94 ток/с · ctx 1456
+  [num_ctx=16384/q1/1] ok · 21554.0 мс · 22.43 ток/с · ctx 2407
+  [num_ctx=16384/q2/1] ok · 30138.2 мс · 22.76 ток/с · ctx 2157
+  [num_ctx=16384/q3/1] ok · 18421.9 мс · 23.22 ток/с · ctx 2001
+  [num_ctx=16384/q5/1] ok · 27564.0 мс · 22.79 ток/с · ctx 2374
+  [num_ctx=16384/q10/1] ok · 11166.1 мс · 23.38 ток/с · ctx 1456
+
+=== Оценка качества (судья DeepSeek) ===
+  [temp=0.0/q1/1] score=1
+  [temp=0.0/q2/1] score=1
+  [temp=0.0/q3/1] score=1
+  [temp=0.0/q5/1] score=1
+  [temp=0.0/q10/1] score=2
+  [temp=0.2/q1/1] score=1
+  [temp=0.2/q2/1] score=1
+  [temp=0.2/q3/1] score=1
+  [temp=0.2/q5/1] score=1
+  [temp=0.2/q10/1] score=2
+  [temp=1.0/q1/1] score=2
+  [temp=1.0/q2/1] score=1
+  [temp=1.0/q3/1] score=1
+  [temp=1.0/q5/1] score=1
+  [temp=1.0/q10/1] score=2
+  [top_k=0 (temp=0.2)/q1/1] score=2
+  [top_k=0 (temp=0.2)/q2/1] score=1
+  [top_k=0 (temp=0.2)/q3/1] score=1
+  [top_k=0 (temp=0.2)/q5/1] score=1
+  [top_k=0 (temp=0.2)/q10/1] score=2
+  [top_k=40 (temp=0.2)/q1/1] score=1
+  [top_k=40 (temp=0.2)/q2/1] score=1
+  [top_k=40 (temp=0.2)/q3/1] score=1
+  [top_k=40 (temp=0.2)/q5/1] score=1
+  [top_k=40 (temp=0.2)/q10/1] score=2
+  [max_tokens=256/q1/1] score=1
+  [max_tokens=256/q2/1] score=1
+  [max_tokens=256/q3/1] score=1
+  [max_tokens=256/q5/1] score=1
+  [max_tokens=256/q10/1] score=2
+  [max_tokens=512/q1/1] score=1
+  [max_tokens=512/q2/1] score=1
+  [max_tokens=512/q3/1] score=1
+  [max_tokens=512/q5/1] score=1
+  [max_tokens=512/q10/1] score=2
+  [max_tokens=1024/q1/1] score=1
+  [max_tokens=1024/q2/1] score=1
+  [max_tokens=1024/q3/1] score=1
+  [max_tokens=1024/q5/1] score=1
+  [max_tokens=1024/q10/1] score=2
+  [max_tokens=2048/q1/1] score=1
+  [max_tokens=2048/q2/1] score=1
+  [max_tokens=2048/q3/1] score=1
+  [max_tokens=2048/q5/1] score=1
+  [max_tokens=2048/q10/1] score=2
+  [num_ctx=2048/q1/1] score=2
+  [num_ctx=2048/q2/1] score=0
+  [num_ctx=2048/q3/1] score=1
+  [num_ctx=2048/q5/1] score=1
+  [num_ctx=2048/q10/1] score=2
+  [num_ctx=4096/q1/1] score=1
+  [num_ctx=4096/q2/1] score=1
+  [num_ctx=4096/q3/1] score=1
+  [num_ctx=4096/q5/1] score=1
+  [num_ctx=4096/q10/1] score=2
+  [num_ctx=8192/q1/1] score=1
+  [num_ctx=8192/q2/1] score=1
+  [num_ctx=8192/q3/1] score=1
+  [num_ctx=8192/q5/1] score=1
+  [num_ctx=8192/q10/1] score=2
+  [num_ctx=16384/q1/1] score=1
+  [num_ctx=16384/q2/1] score=1
+  [num_ctx=16384/q3/1] score=1
+  [num_ctx=16384/q5/1] score=1
+  [num_ctx=16384/q10/1] score=2
+
+=== Финалисты (5 конфигураций) × 10 вопросов × 3 повторов ===
+  [top_k=0 (temp=0.2)/q1/1] ok · 20896.2 мс · 22.85 ток/с · ctx 2407
+  [top_k=0 (temp=0.2)/q1/2] ok · 12752.0 мс · 22.31 ток/с · ctx 2407
+  [top_k=0 (temp=0.2)/q1/3] ok · 9092.4 мс · 22.73 ток/с · ctx 2407
+  [top_k=0 (temp=0.2)/q2/1] ok · 29420.9 мс · 22.97 ток/с · ctx 2157
+  [top_k=0 (temp=0.2)/q2/2] ok · 22595.8 мс · 22.64 ток/с · ctx 2157
+  [top_k=0 (temp=0.2)/q2/3] ok · 21737.3 мс · 22.48 ток/с · ctx 2157
+  [top_k=0 (temp=0.2)/q3/1] ok · 18442.2 мс · 22.89 ток/с · ctx 2001
+  [top_k=0 (temp=0.2)/q3/2] ok · 9783.8 мс · 22.64 ток/с · ctx 2001
+  [top_k=0 (temp=0.2)/q3/3] ok · 10909.0 мс · 22.77 ток/с · ctx 2001
+  [top_k=0 (temp=0.2)/q4/1] ok · 21591.8 мс · 22.68 ток/с · ctx 1797
+  [top_k=0 (temp=0.2)/q4/2] ok · 16364.9 мс · 23.09 ток/с · ctx 1797
+  [top_k=0 (temp=0.2)/q4/3] ok · 14788.1 мс · 23.1 ток/с · ctx 1797
+  [top_k=0 (temp=0.2)/q5/1] ok · 27164.9 мс · 22.27 ток/с · ctx 2374
+  [top_k=0 (temp=0.2)/q5/2] ok · 24429.5 мс · 22.03 ток/с · ctx 2374
+  [top_k=0 (temp=0.2)/q5/3] ok · 20380.2 мс · 22.45 ток/с · ctx 2374
+  [top_k=0 (temp=0.2)/q6/1] ok · 22226.9 мс · 22.69 ток/с · ctx 1889
+  [top_k=0 (temp=0.2)/q6/2] ok · 16136.5 мс · 22.97 ток/с · ctx 1889
+  [top_k=0 (temp=0.2)/q6/3] ok · 16162.3 мс · 22.74 ток/с · ctx 1889
+  [top_k=0 (temp=0.2)/q7/1] ok · 15404.2 мс · 22.31 ток/с · ctx 2238
+  [top_k=0 (temp=0.2)/q7/2] ok · 7430.4 мс · 22.47 ток/с · ctx 2238
+  [top_k=0 (temp=0.2)/q7/3] ok · 7720.6 мс · 22.51 ток/с · ctx 2238
+  [top_k=0 (temp=0.2)/q8/1] ok · 19956.3 мс · 22.74 ток/с · ctx 1500
+  [top_k=0 (temp=0.2)/q8/2] ok · 15419.1 мс · 22.86 ток/с · ctx 1500
+  [top_k=0 (temp=0.2)/q8/3] ok · 14210.2 мс · 23.26 ток/с · ctx 1500
+  [top_k=0 (temp=0.2)/q9/1] ok · 18711.1 мс · 22.8 ток/с · ctx 1948
+  [top_k=0 (temp=0.2)/q9/2] ok · 18524.5 мс · 22.82 ток/с · ctx 1948
+  [top_k=0 (temp=0.2)/q9/3] ok · 14849.7 мс · 22.88 ток/с · ctx 1948
+  [top_k=0 (temp=0.2)/q10/1] ok · 10685.4 мс · 23.35 ток/с · ctx 1456
+  [top_k=0 (temp=0.2)/q10/2] ok · 6498.9 мс · 23.5 ток/с · ctx 1456
+  [top_k=0 (temp=0.2)/q10/3] ok · 8292.3 мс · 23.31 ток/с · ctx 1456
+  [temp=1.0/q1/1] ok · 17125.1 мс · 22.48 ток/с · ctx 2407
+  [temp=1.0/q1/2] ok · 11331.9 мс · 22.82 ток/с · ctx 2407
+  [temp=1.0/q1/3] ok · 13220.6 мс · 22.66 ток/с · ctx 2407
+  [temp=1.0/q2/1] ok · 16913.4 мс · 22.85 ток/с · ctx 2157
+  [temp=1.0/q2/2] ok · 26594.6 мс · 21.2 ток/с · ctx 2157
+  [temp=1.0/q2/3] ok · 10394.2 мс · 22.02 ток/с · ctx 2157
+  [temp=1.0/q3/1] ok · 26653.6 мс · 22.84 ток/с · ctx 2001
+  [temp=1.0/q3/2] ok · 11821.3 мс · 23.38 ток/с · ctx 2001
+  [temp=1.0/q3/3] ok · 12747.3 мс · 23.18 ток/с · ctx 2001
+  [temp=1.0/q4/1] ok · 10974.0 мс · 23.61 ток/с · ctx 1797
+  [temp=1.0/q4/2] ok · 5495.0 мс · 23.75 ток/с · ctx 1797
+  [temp=1.0/q4/3] ok · 13750.3 мс · 23.31 ток/с · ctx 1797
+  [temp=1.0/q5/1] ok · 45350.6 мс · 22.63 ток/с · ctx 2374
+  [temp=1.0/q5/2] ok · 29043.2 мс · 22.91 ток/с · ctx 2374
+  [temp=1.0/q5/3] ok · 21798.9 мс · 22.92 ток/с · ctx 2374
+  [temp=1.0/q6/1] ok · 13229.7 мс · 23.44 ток/с · ctx 1889
+  [temp=1.0/q6/2] ok · 13329.9 мс · 23.22 ток/с · ctx 1889
+  [temp=1.0/q6/3] ok · 25205.5 мс · 23.19 ток/с · ctx 1889
+  [temp=1.0/q7/1] ok · 45125.4 мс · 22.76 ток/с · ctx 2238
+  [temp=1.0/q7/2] ok · 11545.5 мс · 23.26 ток/с · ctx 2238
+  [temp=1.0/q7/3] ok · 11414.9 мс · 23.27 ток/с · ctx 2238
+  [temp=1.0/q8/1] ok · 23322.9 мс · 23.59 ток/с · ctx 1500
+  [temp=1.0/q8/2] ok · 12433.9 мс · 23.69 ток/с · ctx 1500
+  [temp=1.0/q8/3] ok · 13763.1 мс · 23.49 ток/с · ctx 1500
+  [temp=1.0/q9/1] ok · 11962.7 мс · 22.45 ток/с · ctx 1948
+  [temp=1.0/q9/2] ok · 2494.1 мс · 23.86 ток/с · ctx 1948
+  [temp=1.0/q9/3] ok · 11342.7 мс · 22.96 ток/с · ctx 1948
+  [temp=1.0/q10/1] ok · 12504.2 мс · 23.59 ток/с · ctx 1456
+  [temp=1.0/q10/2] ok · 7592.0 мс · 23.63 ток/с · ctx 1456
+  [temp=1.0/q10/3] ok · 7129.2 мс · 23.75 ток/с · ctx 1456
+  [max_tokens=256/q1/1] ok · 9219.6 мс · 22.52 ток/с · ctx 2407
+  [max_tokens=256/q1/2] ok · 8974.1 мс · 23.05 ток/с · ctx 2407
+  [max_tokens=256/q1/3] ok · 8900.9 мс · 23.21 ток/с · ctx 2407
+  [max_tokens=256/q2/1] ok · 11097.8 мс · 23.29 ток/с · ctx 2157
+  [max_tokens=256/q2/2] ok · 11237.3 мс · 22.92 ток/с · ctx 2157
+  [max_tokens=256/q2/3] ok · 11063.1 мс · 23.3 ток/с · ctx 2157
+  [max_tokens=256/q3/1] ok · 11182.4 мс · 23.12 ток/с · ctx 2001
+  [max_tokens=256/q3/2] ok · 11008.2 мс · 23.39 ток/с · ctx 2001
+  [max_tokens=256/q3/3] ok · 11199.6 мс · 22.99 ток/с · ctx 2001
+  [max_tokens=256/q4/1] ok · 11079.7 мс · 23.3 ток/с · ctx 1797
+  [max_tokens=256/q4/2] ok · 11227.6 мс · 22.92 ток/с · ctx 1797
+  [max_tokens=256/q4/3] ok · 10927.9 мс · 23.58 ток/с · ctx 1797
+  [max_tokens=256/q5/1] ok · 11244.3 мс · 22.99 ток/с · ctx 2374
+  [max_tokens=256/q5/2] ok · 11408.0 мс · 22.58 ток/с · ctx 2374
+  [max_tokens=256/q5/3] ok · 11250.8 мс · 22.89 ток/с · ctx 2374
+  [max_tokens=256/q6/1] ok · 10949.4 мс · 23.6 ток/с · ctx 1889
+  [max_tokens=256/q6/2] ok · 10972.0 мс · 23.47 ток/с · ctx 1889
+  [max_tokens=256/q6/3] ok · 10924.4 мс · 23.58 ток/с · ctx 1889
+  [max_tokens=256/q7/1] ok · 7579.4 мс · 23.18 ток/с · ctx 2238
+  [max_tokens=256/q7/2] ok · 7525.2 мс · 23.23 ток/с · ctx 2238
+  [max_tokens=256/q7/3] ok · 7482.9 мс · 23.38 ток/с · ctx 2238
+  [max_tokens=256/q8/1] ok · 10913.6 мс · 23.66 ток/с · ctx 1500
+  [max_tokens=256/q8/2] ok · 10912.8 мс · 23.62 ток/с · ctx 1500
+  [max_tokens=256/q8/3] ok · 11016.5 мс · 23.4 ток/с · ctx 1500
+  [max_tokens=256/q9/1] ok · 10989.6 мс · 23.5 ток/с · ctx 1948
+  [max_tokens=256/q9/2] ok · 11112.6 мс · 23.17 ток/с · ctx 1948
+  [max_tokens=256/q9/3] ok · 10969.1 мс · 23.48 ток/с · ctx 1948
+  [max_tokens=256/q10/1] ok · 6506.4 мс · 23.97 ток/с · ctx 1456
+  [max_tokens=256/q10/2] ok · 6478.2 мс · 23.97 ток/с · ctx 1456
+  [max_tokens=256/q10/3] ok · 6655.0 мс · 23.37 ток/с · ctx 1456
+  [num_ctx=2048/q1/1] ok · 13066.1 мс · 24.06 ток/с · ctx 1026
+  [num_ctx=2048/q1/2] ok · 7554.7 мс · 23.75 ток/с · ctx 1026
+  [num_ctx=2048/q1/3] ok · 8257.5 мс · 21.77 ток/с · ctx 1026
+  [num_ctx=2048/q2/1] ok · 8424.1 мс · 23.5 ток/с · ctx 1026
+  [num_ctx=2048/q2/2] ok · 4163.0 мс · 24.08 ток/с · ctx 1026
+  [num_ctx=2048/q2/3] ok · 4109.8 мс · 24.27 ток/с · ctx 1026
+  [num_ctx=2048/q3/1] ok · 13288.3 мс · 21.78 ток/с · ctx 2001
+  [num_ctx=2048/q3/2] ok · 13298.1 мс · 23.01 ток/с · ctx 2001
+  [num_ctx=2048/q3/3] ok · 13241.3 мс · 22.7 ток/с · ctx 2001
+  [num_ctx=2048/q4/1] ok · 23803.6 мс · 22.34 ток/с · ctx 1797
+  [num_ctx=2048/q4/2] ok · 23118.8 мс · 23.14 ток/с · ctx 1797
+  [num_ctx=2048/q4/3] ok · 22994.9 мс · 23.44 ток/с · ctx 1797
+  [num_ctx=2048/q5/1] ok · 10378.0 мс · 24.02 ток/с · ctx 1026
+  [num_ctx=2048/q5/2] ok · 6322.4 мс · 23.67 ток/с · ctx 1026
+  [num_ctx=2048/q5/3] ok · 6250.8 мс · 24.02 ток/с · ctx 1026
+  [num_ctx=2048/q6/1] ok · 51425.5 мс · 23.52 ток/с · ctx 1889
+  [num_ctx=2048/q6/2] ok · 53089.0 мс · 22.66 ток/с · ctx 1889
+  [num_ctx=2048/q6/3] ok · 51820.8 мс · 23.38 ток/с · ctx 1889
+  [num_ctx=2048/q7/1] ok · 7939.0 мс · 24.02 ток/с · ctx 1026
+  [num_ctx=2048/q7/2] ok · 3741.2 мс · 24.19 ток/с · ctx 1026
+  [num_ctx=2048/q7/3] ok · 3742.5 мс · 24.22 ток/с · ctx 1026
+  [num_ctx=2048/q8/1] ok · 20911.5 мс · 23.71 ток/с · ctx 1500
+  [num_ctx=2048/q8/2] ok · 14749.4 мс · 23.69 ток/с · ctx 1500
+  [num_ctx=2048/q8/3] ok · 14799.1 мс · 23.61 ток/с · ctx 1500
+  [num_ctx=2048/q9/1] ok · 50085.3 мс · 23.37 ток/с · ctx 1948
+  [num_ctx=2048/q9/2] ok · 50865.6 мс · 22.99 ток/с · ctx 1948
+  [num_ctx=2048/q9/3] ok · 51935.6 мс · 23.38 ток/с · ctx 1948
+  [num_ctx=2048/q10/1] ok · 12713.2 мс · 23.36 ток/с · ctx 1456
+  [num_ctx=2048/q10/2] ok · 6614.8 мс · 23.49 ток/с · ctx 1456
+  [num_ctx=2048/q10/3] ok · 6633.7 мс · 23.45 ток/с · ctx 1456
+  [best_combo/q1/1] ok · 11089.9 мс · 23.34 ток/с · ctx 1026
+  [best_combo/q1/2] ok · 11169.8 мс · 23.07 ток/с · ctx 1026
+  [best_combo/q1/3] ok · 11083.2 мс · 23.25 ток/с · ctx 1026
+  [best_combo/q2/1] ok · 11442.0 мс · 22.6 ток/с · ctx 1026
+  [best_combo/q2/2] ok · 6229.8 мс · 23.07 ток/с · ctx 1026
+  [best_combo/q2/3] ok · 2490.9 мс · 23.64 ток/с · ctx 1026
+  [best_combo/q3/1] ok · 18352.5 мс · 22.0 ток/с · ctx 2001
+  [best_combo/q3/2] ok · 15901.8 мс · 22.19 ток/с · ctx 2001
+  [best_combo/q3/3] ok · 19054.5 мс · 22.39 ток/с · ctx 2001
+  [best_combo/q4/1] ok · 19506.5 мс · 21.71 ток/с · ctx 1797
+  [best_combo/q4/2] ok · 19569.0 мс · 21.6 ток/с · ctx 1797
+  [best_combo/q4/3] ok · 19453.6 мс · 21.8 ток/с · ctx 1797
+  [best_combo/q5/1] ok · 11557.6 мс · 22.37 ток/с · ctx 1026
+  [best_combo/q5/2] ok · 11667.3 мс · 22.09 ток/с · ctx 1026
+  [best_combo/q5/3] ok · 11564.8 мс · 22.28 ток/с · ctx 1026
+  [best_combo/q6/1] ok · 19701.3 мс · 22.18 ток/с · ctx 1889
+  [best_combo/q6/2] ok · 19700.1 мс · 21.88 ток/с · ctx 1889
+  [best_combo/q6/3] ok · 18503.6 мс · 23.57 ток/с · ctx 1889
+  [best_combo/q7/1] ok · 12400.2 мс · 20.83 ток/с · ctx 1026
+  [best_combo/q7/2] ok · 11304.7 мс · 22.81 ток/с · ctx 1026
+  [best_combo/q7/3] ok · 10826.6 мс · 23.79 ток/с · ctx 1026
+  [best_combo/q8/1] ok · 17091.3 мс · 23.61 ток/с · ctx 1500
+  [best_combo/q8/2] ok · 11021.0 мс · 23.35 ток/с · ctx 1500
+  [best_combo/q8/3] ok · 10939.0 мс · 23.53 ток/с · ctx 1500
+  [best_combo/q9/1] ok · 16201.9 мс · 23.56 ток/с · ctx 1948
+  [best_combo/q9/2] ok · 13017.6 мс · 23.69 ток/с · ctx 1948
+  [best_combo/q9/3] ok · 16762.9 мс · 23.57 ток/с · ctx 1948
+  [best_combo/q10/1] ok · 16859.0 мс · 23.71 ток/с · ctx 1456
+  [best_combo/q10/2] ok · 10792.1 мс · 23.86 ток/с · ctx 1456
+  [best_combo/q10/3] ok · 10805.5 мс · 23.83 ток/с · ctx 1456
+
+=== Оценка качества (судья DeepSeek) ===
+  [top_k=0 (temp=0.2)/q1/1] score=1
+  [top_k=0 (temp=0.2)/q1/2] score=1
+  [top_k=0 (temp=0.2)/q1/3] score=1
+  [top_k=0 (temp=0.2)/q2/1] score=1
+  [top_k=0 (temp=0.2)/q2/2] score=1
+  [top_k=0 (temp=0.2)/q2/3] score=1
+  [top_k=0 (temp=0.2)/q3/1] score=1
+  [top_k=0 (temp=0.2)/q3/2] score=1
+  [top_k=0 (temp=0.2)/q3/3] score=1
+  [top_k=0 (temp=0.2)/q4/1] score=2
+  [top_k=0 (temp=0.2)/q4/2] score=1
+  [top_k=0 (temp=0.2)/q4/3] score=1
+  [top_k=0 (temp=0.2)/q5/1] score=1
+  [top_k=0 (temp=0.2)/q5/2] score=1
+  [top_k=0 (temp=0.2)/q5/3] score=1
+  [top_k=0 (temp=0.2)/q6/1] score=0
+  [top_k=0 (temp=0.2)/q6/2] score=0
+  [top_k=0 (temp=0.2)/q6/3] score=1
+  [top_k=0 (temp=0.2)/q7/1] score=1
+  [top_k=0 (temp=0.2)/q7/2] score=1
+  [top_k=0 (temp=0.2)/q7/3] score=1
+  [top_k=0 (temp=0.2)/q8/1] score=1
+  [top_k=0 (temp=0.2)/q8/2] score=1
+  [top_k=0 (temp=0.2)/q8/3] score=1
+  [top_k=0 (temp=0.2)/q9/1] score=2
+  [top_k=0 (temp=0.2)/q9/2] score=2
+  [top_k=0 (temp=0.2)/q9/3] score=2
+  [top_k=0 (temp=0.2)/q10/1] score=2
+  [top_k=0 (temp=0.2)/q10/2] score=2
+  [top_k=0 (temp=0.2)/q10/3] score=2
+  [temp=1.0/q1/1] score=1
+  [temp=1.0/q1/2] score=1
+  [temp=1.0/q1/3] score=2
+  [temp=1.0/q2/1] score=1
+  [temp=1.0/q2/2] score=1
+  [temp=1.0/q2/3] score=1
+  [temp=1.0/q3/1] score=1
+  [temp=1.0/q3/2] score=1
+  [temp=1.0/q3/3] score=1
+  [temp=1.0/q4/1] score=1
+  [temp=1.0/q4/2] score=1
+  [temp=1.0/q4/3] score=1
+  [temp=1.0/q5/1] score=0
+  [temp=1.0/q5/2] score=1
+  [temp=1.0/q5/3] score=1
+  [temp=1.0/q6/1] score=0
+  [temp=1.0/q6/2] score=0
+  [temp=1.0/q6/3] score=0
+  [temp=1.0/q7/1] score=0
+  [temp=1.0/q7/2] score=0
+  [temp=1.0/q7/3] score=1
+  [temp=1.0/q8/1] score=1
+  [temp=1.0/q8/2] score=1
+  [temp=1.0/q8/3] score=1
+  [temp=1.0/q9/1] score=2
+  [temp=1.0/q9/2] score=2
+  [temp=1.0/q9/3] score=1
+  [temp=1.0/q10/1] score=2
+  [temp=1.0/q10/2] score=1
+  [temp=1.0/q10/3] score=1
+  [max_tokens=256/q1/1] score=1
+  [max_tokens=256/q1/2] score=1
+  [max_tokens=256/q1/3] score=1
+  [max_tokens=256/q2/1] score=1
+  [max_tokens=256/q2/2] score=1
+  [max_tokens=256/q2/3] score=1
+  [max_tokens=256/q3/1] score=1
+  [max_tokens=256/q3/2] score=1
+  [max_tokens=256/q3/3] score=1
+  [max_tokens=256/q4/1] score=1
+  [max_tokens=256/q4/2] score=1
+  [max_tokens=256/q4/3] score=1
+  [max_tokens=256/q5/1] score=1
+  [max_tokens=256/q5/2] score=1
+  [max_tokens=256/q5/3] score=1
+  [max_tokens=256/q6/1] score=0
+  [max_tokens=256/q6/2] score=0
+  [max_tokens=256/q6/3] score=0
+  [max_tokens=256/q7/1] score=1
+  [max_tokens=256/q7/2] score=1
+  [max_tokens=256/q7/3] score=1
+  [max_tokens=256/q8/1] score=1
+  [max_tokens=256/q8/2] score=1
+  [max_tokens=256/q8/3] score=1
+  [max_tokens=256/q9/1] score=2
+  [max_tokens=256/q9/2] score=2
+  [max_tokens=256/q9/3] score=2
+  [max_tokens=256/q10/1] score=2
+  [max_tokens=256/q10/2] score=2
+  [max_tokens=256/q10/3] score=2
+  [num_ctx=2048/q1/1] score=2
+  [num_ctx=2048/q1/2] score=2
+  [num_ctx=2048/q1/3] score=2
+  [num_ctx=2048/q2/1] score=1
+  [num_ctx=2048/q2/2] score=1
+  [num_ctx=2048/q2/3] score=1
+  [num_ctx=2048/q3/1] score=1
+  [num_ctx=2048/q3/2] score=1
+  [num_ctx=2048/q3/3] score=1
+  [num_ctx=2048/q4/1] score=2
+  [num_ctx=2048/q4/2] score=2
+  [num_ctx=2048/q4/3] score=2
+  [num_ctx=2048/q5/1] score=1
+  [num_ctx=2048/q5/2] score=1
+  [num_ctx=2048/q5/3] score=1
+  [num_ctx=2048/q6/1] score=0
+  [num_ctx=2048/q6/2] score=0
+  [num_ctx=2048/q6/3] score=0
+  [num_ctx=2048/q7/1] score=0
+  [num_ctx=2048/q7/2] score=0
+  [num_ctx=2048/q7/3] score=0
+  [num_ctx=2048/q8/1] score=1
+  [num_ctx=2048/q8/2] score=1
+  [num_ctx=2048/q8/3] score=1
+  [num_ctx=2048/q9/1] score=1
+  [num_ctx=2048/q9/2] score=1
+  [num_ctx=2048/q9/3] score=1
+  [num_ctx=2048/q10/1] score=2
+  [num_ctx=2048/q10/2] score=2
+  [num_ctx=2048/q10/3] score=2
+  [best_combo/q1/1] score=1
+  [best_combo/q1/2] score=1
+  [best_combo/q1/3] score=1
+  [best_combo/q2/1] score=0
+  [best_combo/q2/2] score=1
+  [best_combo/q2/3] score=0
+  [best_combo/q3/1] score=1
+  [best_combo/q3/2] score=1
+  [best_combo/q3/3] score=1
+  [best_combo/q4/1] score=0
+  [best_combo/q4/2] score=1
+  [best_combo/q4/3] score=1
+  [best_combo/q5/1] score=1
+  [best_combo/q5/2] score=1
+  [best_combo/q5/3] score=1
+  [best_combo/q6/1] score=1
+  [best_combo/q6/2] score=0
+  [best_combo/q6/3] score=0
+  [best_combo/q7/1] score=0
+  [best_combo/q7/2] score=0
+  [best_combo/q7/3] score=0
+  [best_combo/q8/1] score=1
+  [best_combo/q8/2] score=1
+  [best_combo/q8/3] score=0
+  [best_combo/q9/1] score=1
+  [best_combo/q9/2] score=1
+  [best_combo/q9/3] score=2
+  [best_combo/q10/1] score=1
+  [best_combo/q10/2] score=0
+  [best_combo/q10/3] score=1
+
+Отчёт: /Users/alexbaev/IdeaProjects/ai_advent_9/week06/day29/llm-optimization/reports/params_sweep.md
+Данные: /Users/alexbaev/IdeaProjects/ai_advent_9/week06/day29/llm-optimization/reports/params_sweep.json
+
+>>> Выигрышная комбинация (ТОЛЬКО в отчёте, дефолтом не подставляется): top_k=0 (temp=0.2)
