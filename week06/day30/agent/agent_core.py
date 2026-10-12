@@ -13,10 +13,13 @@
 import json
 import logging
 import math
+import os
 import re
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from typing import List, Optional, Union
 
 from fastapi import FastAPI, HTTPException
@@ -80,7 +83,7 @@ TOOL_CAPABLE_MODELS = {"deepseek-chat"}
 
 # Префиксы имён локальных моделей (Ollama и т.п.), поддерживающих function calling.
 # Используется в _tools_enabled: локальные модели тоже умеют вызывать MCP-инструменты.
-LOCAL_TOOL_CAPABLE_PREFIXES = ("llama",)
+LOCAL_TOOL_CAPABLE_PREFIXES = ("llama", "qwen")
 
 # Максимальное число раундов вызова инструментов в многокруговом цикле
 # _run_tool_loop (цепочка search → summarize → save_to_file). Защита от зацикливания.
@@ -969,6 +972,118 @@ def build_context_summary(store, strategy, conversation, working, long_term, win
     return info
 
 
+def _trim_messages_to_budget(messages: List[dict], budget_tokens: int):
+    """Обрезает старые сообщения ДИАЛОГА, пока контекст не влезет в бюджет.
+
+    Системные блоки (инварианты/профиль/память/RAG), стоящие в начале списка,
+    не трогаем — они являются обязательным контекстом. Удаляются только старые
+    user/assistant/tool сообщения (самые старые — первыми); ПОСЛЕДНЕЕ сообщение
+    (текущий запрос пользователя) не выбрасывается никогда.
+
+    Возвращает список сообщений либо None, если даже последнее сообщение вместе
+    с системными блоками не влезает в бюджет (сигнал переполнения контекста).
+    """
+    if not messages:
+        return messages
+    idx = 0
+    while idx < len(messages) and messages[idx].get("role") == "system":
+        idx += 1
+    head = messages[:idx]
+    tail = list(messages[idx:])
+    if not tail:
+        return head
+    last = tail[-1]
+    tail = tail[:-1]
+    while tail and estimate_messages_tokens(head + tail + [last]) > budget_tokens:
+        tail = tail[1:]
+    if estimate_messages_tokens(head + tail + [last]) > budget_tokens:
+        return None  # даже один текущий запрос не влезает — переполнение
+    return head + tail + [last]
+
+
+# ------------------------------------------------------------
+# Rate limit (per-IP, скользящее окно) — на уровне агента
+# ------------------------------------------------------------
+class _SlidingWindowLimiter:
+    """Простой потокобезопасный лимитер «скользящее окно» в памяти.
+
+    Подходит для одного процесса (uvicorn). Для нескольких воркеров нужен
+    общий redis-бэкенд — в рамках задания достаточно in-memory.
+    """
+
+    def __init__(self, limit: int, window_seconds: float):
+        self.limit = max(1, int(limit))
+        self.window = float(window_seconds)
+        self._hits: dict = {}
+        self._lock = threading.Lock()
+
+    def hit(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            q = self._hits.setdefault(key, deque())
+            while q and now - q[0] >= self.window:
+                q.popleft()
+            if len(q) >= self.limit:
+                return False
+            q.append(now)
+            return True
+
+    def reset(self, key: str) -> None:
+        with self._lock:
+            self._hits.pop(key, None)
+
+
+class RateLimitMiddleware:
+    """ASGI-middleware: ограничение частоты запросов по IP клиента.
+
+    IP берётся из заголовка X-Forwarded-For (ПОСЛЕДНЕЕ значение — его добавляет
+    ближайший прокси, т.е. nginx; спуфить слева бессмысленно) или из socket
+    при прямом подключении. OPTIONS (CORS preflight) пропускается без учёта.
+    """
+
+    def __init__(self, app, limiter: _SlidingWindowLimiter = None,
+                 exclude_paths=None):
+        self.app = app
+        self.limiter = limiter or _SlidingWindowLimiter(5, 60.0)
+        self.exclude_paths = set(exclude_paths or [])
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        if scope.get("method") == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+        if scope.get("path", "") in self.exclude_paths:
+            await self.app(scope, receive, send)
+            return
+        if not self.limiter.hit(self._client_ip(scope)):
+            await self._send_429(send)
+            return
+        await self.app(scope, receive, send)
+
+    def _client_ip(self, scope) -> str:
+        headers = dict(scope.get("headers") or [])
+        xff = headers.get(b"x-forwarded-for")
+        if xff:
+            # Последнее значение — IP ближайшего прокси (реальный клиент).
+            return xff.decode("latin-1").split(",")[-1].strip() or "unknown"
+        client = scope.get("client")
+        return client[0] if client else "unknown"
+
+    async def _send_429(self, send):
+        body = json.dumps({
+            "detail": "Превышен лимит запросов (rate limit). Повторите позже.",
+        }).encode("utf-8")
+        headers = [
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"retry-after", str(int(self.limiter.window)).encode("ascii")),
+            (b"x-ratelimit-limit", str(self.limiter.limit).encode("ascii")),
+        ]
+        await send({"type": "http.response.start", "status": 429, "headers": headers})
+        await send({"type": "http.response.body", "body": body})
+
+
 # ------------------------------------------------------------
 # Вспомогательные для задач
 # ------------------------------------------------------------
@@ -1004,7 +1119,20 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
     store = store or default_storage
     clients = _normalize_mcp_clients(mcp_client, mcp_clients)
 
-    app = FastAPI(title="AI Agent Service", description="Обработка запросов к DeepSeek")
+    # Настройки сервиса (переопределяются через переменные окружения).
+    # Rate limit — на уровне агента (per-IP), т.к. Ollama лимиты не умеет.
+    rate_limit_per_minute = int(os.environ.get("AGENT_RATE_LIMIT_PER_MINUTE", "5"))
+    max_prompt_tokens = int(os.environ.get("AGENT_MAX_PROMPT_TOKENS", "2048"))
+
+    app = FastAPI(title="AI Agent Service", description="Обработка запросов к модели")
+    app.state.rate_limiter = _SlidingWindowLimiter(rate_limit_per_minute, 60.0)
+    # Rate limit добавляем ПЕРЕД CORS: тогда CORS окажется внешним слоем и
+    # корректно добавит заголовки даже к ответам 429.
+    app.add_middleware(
+        RateLimitMiddleware,
+        limiter=app.state.rate_limiter,
+        exclude_paths={"/healthz", "/limits"},
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -1012,8 +1140,21 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
         allow_headers=["*"],
     )
 
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True, "service": "ai-agent", "provider": type(provider).__name__}
+
+    @app.get("/limits")
+    def limits():
+        return {
+            "rate_limit": f"{rate_limit_per_minute}/minute",
+            "max_prompt_tokens": max_prompt_tokens,
+            "ollama_num_ctx": os.environ.get("OLLAMA_NUM_CTX", "2048"),
+            "ollama_max_concurrency": os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"),
+        }
+
     @app.post("/agent")
-    async def agent_endpoint(request: AgentRequest):
+    def agent_endpoint(request: AgentRequest):
         agent_id = request.session_id or str(uuid.uuid4())
         start_time = time.time()
 
@@ -1227,6 +1368,22 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                     logger.warning("Ошибка RAG-ретрива: %s", e)
                     rag_context = {"error": str(e)}
 
+            # 4.2 Guard контекста: не превышать лимит (num_ctx) — обрезаем старый
+            #     диалог; если даже текущий запрос не влезает — явная ошибка 413.
+            if context_tokens > max_prompt_tokens:
+                trimmed = _trim_messages_to_budget(request_messages, max_prompt_tokens)
+                if trimmed is None:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Контекст превышает лимит {max_prompt_tokens} токенов "
+                            f"(фактически {context_tokens}). Сократите запрос или "
+                            f"увеличьте AGENT_MAX_PROMPT_TOKENS / OLLAMA_NUM_CTX."
+                        ),
+                    )
+                request_messages = trimmed
+                context_tokens = estimate_messages_tokens(request_messages)
+
             # 5. Генерация + переход конечного автомата.
             tools_active = _tools_enabled(request, clients)
             tool_calls_info: List[dict] = []
@@ -1373,7 +1530,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
         return {"applied": applied, "memory": store.list_memory(session_id)}
 
     @app.post("/agent/{session_id}/memory/suggest")
-    async def suggest_endpoint(session_id: str, request: SuggestRequest):
+    def suggest_endpoint(session_id: str, request: SuggestRequest):
         if store.get_session_meta(session_id) is None:
             raise HTTPException(status_code=404, detail="Сессия не найдена")
         conversation = store.load(session_id) or []

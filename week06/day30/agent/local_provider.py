@@ -13,6 +13,8 @@ create_app(...) без изменений пайплайна.
 """
 import json
 import os
+import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -39,9 +41,43 @@ from agent_core import (
     INVARIANT_CHECK_MAX_TOKENS,
 )
 
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/") # is port 11434 stable?
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+# Дефолт — компактная модель под CPU-only VPS (2 ГБ RAM). Локально можно
+# переопределить через OLLAMA_MODEL в .env (например, llama3.1).
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
 OLLAMA_TIMEOUT = float(os.environ.get("OLLAMA_TIMEOUT", "180"))
+# Контекстное окно, передаваемое в Ollama (options.num_ctx). Для 2 ГБ RAM
+# держим небольшим (2048), иначе KV-кэш съест память.
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "2048"))
+# Ограничение конкурентности вызовов модели (semaphore) и таймаут ожидания слота.
+OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"))
+OLLAMA_CONCURRENCY_TIMEOUT = float(os.environ.get("OLLAMA_CONCURRENCY_TIMEOUT", "600"))
+# Ретраи на transient-ошибки (модель грузится / 5xx) с линейным backoff.
+OLLAMA_MAX_RETRIES = int(os.environ.get("OLLAMA_MAX_RETRIES", "2"))
+OLLAMA_RETRY_BACKOFF = float(os.environ.get("OLLAMA_RETRY_BACKOFF", "2.0"))
+
+# Один семафор на процесс: фактически ограничивает, сколько одновременных
+# запросов уходит в Ollama (остальные ждут в очереди на стороне агента).
+_MODEL_SEMAPHORE = threading.BoundedSemaphore(OLLAMA_MAX_CONCURRENCY)
+
+
+def _post_with_retry(url: str, payload: dict, headers: dict, timeout: float) -> requests.Response:
+    """POST с ретраями на сетевые ошибки и 5xx (Ollama может перезагружать модель)."""
+    last_exc = None
+    for attempt in range(OLLAMA_MAX_RETRIES):
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < OLLAMA_MAX_RETRIES - 1:
+                time.sleep(OLLAMA_RETRY_BACKOFF * (attempt + 1))
+                continue
+            raise
+        if resp.status_code in (500, 502, 503) and attempt < OLLAMA_MAX_RETRIES - 1:
+            time.sleep(OLLAMA_RETRY_BACKOFF * (attempt + 1))
+            continue
+        return resp
+    raise last_exc
 
 # Имена облачных моделей, которые фронт может прислать по привычке: их нет в
 # Ollama, поэтому подставляем локальную модель.
@@ -84,11 +120,11 @@ def _call_openai_compat(messages, model, temperature, top_p, max_tokens, stop, t
     if tools:
         payload["tools"] = tools
 
-    response = requests.post(
+    response = _post_with_retry(
         OLLAMA_BASE_URL + "/v1/chat/completions",
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=OLLAMA_TIMEOUT,
+        payload,
+        {"Content-Type": "application/json"},
+        OLLAMA_TIMEOUT,
     )
     if response.status_code != 200:
         raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
@@ -104,39 +140,49 @@ def call_ollama_raw(messages, model, temperature=1.0, top_p=1.0, top_k=0,
     С инструментами — OpenAI-совместимый /v1/chat/completions, где работает
     нативный function calling (num_ctx/top_k там не передаются — ограничение Ollama).
     """
-    if tools:
-        return _call_openai_compat(messages, model, temperature, top_p, max_tokens, stop, tools)
+    # Ограничиваем конкурентность: не больше OLLAMA_MAX_CONCURRENCY одновременных
+    # вызовов модели. Остальные запросы ждут слота (или падают по таймауту).
+    if not _MODEL_SEMAPHORE.acquire(timeout=OLLAMA_CONCURRENCY_TIMEOUT):
+        raise Exception(
+            f"Ollama занят: превышен лимит конкурентности "
+            f"OLLAMA_MAX_CONCURRENCY={OLLAMA_MAX_CONCURRENCY}. Повторите позже."
+        )
+    try:
+        if tools:
+            return _call_openai_compat(messages, model, temperature, top_p, max_tokens, stop, tools)
 
-    options = {}
-    if temperature is not None:
-        options["temperature"] = temperature
-    if top_p is not None:
-        options["top_p"] = top_p
-    if top_k is not None:
-        options["top_k"] = top_k
-    if max_tokens is not None:
-        options["num_predict"] = max_tokens
-    if num_ctx is not None:
-        options["num_ctx"] = num_ctx
-    if stop is not None:
-        options["stop"] = [stop] if isinstance(stop, str) else stop
+        options = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if top_p is not None:
+            options["top_p"] = top_p
+        if top_k is not None:
+            options["top_k"] = top_k
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
+        if stop is not None:
+            options["stop"] = [stop] if isinstance(stop, str) else stop
 
-    payload = {
-        "model": _resolve_model(model),
-        "messages": messages,
-        "stream": False,
-        "options": options,
-    }
+        payload = {
+            "model": _resolve_model(model),
+            "messages": messages,
+            "stream": False,
+            "options": options,
+        }
 
-    response = requests.post(
-        OLLAMA_BASE_URL + "/api/chat",
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=OLLAMA_TIMEOUT,
-    )
-    if response.status_code != 200:
-        raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
-    return _native_to_compat(response.json())
+        response = _post_with_retry(
+            OLLAMA_BASE_URL + "/api/chat",
+            payload,
+            {"Content-Type": "application/json"},
+            OLLAMA_TIMEOUT,
+        )
+        if response.status_code != 200:
+            raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
+        return _native_to_compat(response.json())
+    finally:
+        _MODEL_SEMAPHORE.release()
 
 
 class LocalOllamaProvider(AgentProvider):
@@ -151,7 +197,7 @@ class LocalOllamaProvider(AgentProvider):
             temperature=request.temperature,
             top_p=request.top_p,
             top_k=request.top_k,
-            num_ctx=request.num_ctx,
+            num_ctx=request.num_ctx if request.num_ctx is not None else OLLAMA_NUM_CTX,
             max_tokens=request.max_tokens,
             stop=request.stop,
             tools=tools,
