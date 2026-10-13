@@ -1,0 +1,125 @@
+=== A/B шаблона: 2 × 10 вопросов × 3 повторов ===
+  [baseline/q1/1] ok · 22806.0 мс · 23.17 ток/с · ctx 2407
+  [baseline/q1/2] ok · 8913.0 мс · 23.22 ток/с · ctx 2407
+  [baseline/q1/3] ok · 9039.2 мс · 22.85 ток/с · ctx 2407
+  [baseline/q2/1] ok · 29692.9 мс · 22.76 ток/с · ctx 2157
+  [baseline/q2/2] ok · 22593.1 мс · 22.69 ток/с · ctx 2157
+  [baseline/q2/3] ok · 22301.3 мс · 23.01 ток/с · ctx 2157
+  [baseline/q3/1] ok · 18029.6 мс · 23.45 ток/с · ctx 2001
+  [baseline/q3/2] ok · 11537.5 мс · 23.45 ток/с · ctx 2001
+  [baseline/q3/3] ok · 11528.0 мс · 23.47 ток/с · ctx 2001
+  [baseline/q4/1] ok · 21147.1 мс · 23.29 ток/с · ctx 1797
+  [baseline/q4/2] ok · 15460.0 мс · 23.53 ток/с · ctx 1797
+  [baseline/q4/3] ok · 15493.3 мс · 23.47 ток/с · ctx 1797
+  [baseline/q5/1] ok · 26649.3 мс · 23.13 ток/с · ctx 2374
+  [baseline/q5/2] ok · 18572.8 мс · 23.12 ток/с · ctx 2374
+  [baseline/q5/3] ok · 19738.4 мс · 21.76 ток/с · ctx 2374
+  [baseline/q6/1] ok · 22066.7 мс · 21.08 ток/с · ctx 1889
+  [baseline/q6/2] ok · 16211.7 мс · 20.4 ток/с · ctx 1889
+  [baseline/q6/3] ok · 15926.7 мс · 20.74 ток/с · ctx 1889
+  [baseline/q7/1] ok · 16710.6 мс · 21.0 ток/с · ctx 2238
+  [baseline/q7/2] ok · 8508.5 мс · 20.52 ток/с · ctx 2238
+  [baseline/q7/3] ok · 7899.3 мс · 22.1 ток/с · ctx 2238
+  [baseline/q8/1] ok · 19324.4 мс · 23.46 ток/с · ctx 1500
+  [baseline/q8/2] ok · 14750.8 мс · 23.69 ток/с · ctx 1500
+  [baseline/q8/3] ok · 14779.9 мс · 23.64 ток/с · ctx 1500
+  [baseline/q9/1] ok · 20778.8 мс · 23.42 ток/с · ctx 1948
+  [baseline/q9/2] ok · 14706.0 мс · 23.09 ток/с · ctx 1948
+  [baseline/q9/3] ok · 14484.9 мс · 23.45 ток/с · ctx 1948
+  [baseline/q10/1] ok · 10661.4 мс · 23.85 ток/с · ctx 1456
+  [baseline/q10/2] ok · 6513.4 мс · 23.85 ток/с · ctx 1456
+  [baseline/q10/3] ok · 6500.2 мс · 23.91 ток/с · ctx 1456
+  [variant/q1/1] ok · 32201.3 мс · 23.13 ток/с · ctx 2218
+  [variant/q1/2] ok · 23037.1 мс · 22.94 ток/с · ctx 2218
+  [variant/q1/3] ok · 23133.5 мс · 22.84 ток/с · ctx 2218
+  [variant/q2/1] ok · 28563.5 мс · 22.98 ток/с · ctx 1969
+  [variant/q2/2] ok · 21489.3 мс · 23.17 ток/с · ctx 1969
+  [variant/q2/3] ok · 21455.9 мс · 23.21 ток/с · ctx 1969
+  [variant/q3/1] ok · 17398.0 мс · 23.49 ток/с · ctx 1812
+  [variant/q3/2] ok · 11191.1 мс · 23.5 ток/с · ctx 1812
+  [variant/q3/3] ok · 11233.1 мс · 23.41 ток/с · ctx 1812
+  [variant/q4/1] ok · 19735.7 мс · 23.52 ток/с · ctx 1609
+  [variant/q4/2] ok · 14437.4 мс · 23.55 ток/с · ctx 1609
+  [variant/q4/3] ok · 14429.0 мс · 23.56 ток/с · ctx 1609
+  [variant/q5/1] ok · 26952.4 мс · 22.96 ток/с · ctx 2185
+  [variant/q5/2] ok · 19052.0 мс · 23.1 ток/с · ctx 2185
+  [variant/q5/3] ok · 19191.6 мс · 22.92 ток/с · ctx 2185
+  [variant/q6/1] ok · 20081.3 мс · 23.49 ток/с · ctx 1700
+  [variant/q6/2] ok · 14331.8 мс · 23.5 ток/с · ctx 1700
+  [variant/q6/3] ok · 14326.6 мс · 23.52 ток/с · ctx 1700
+  [variant/q7/1] ok · 14716.5 мс · 22.39 ток/с · ctx 2049
+  [variant/q7/2] ok · 7329.5 мс · 22.61 ток/с · ctx 2049
+  [variant/q7/3] ok · 7424.4 мс · 22.31 ток/с · ctx 2049
+  [variant/q8/1] ok · 18199.7 мс · 22.79 ток/с · ctx 1311
+  [variant/q8/2] ok · 14038.8 мс · 22.83 ток/с · ctx 1311
+  [variant/q8/3] ok · 14292.6 мс · 22.43 ток/с · ctx 1311
+  [variant/q9/1] ok · 21973.3 мс · 23.53 ток/с · ctx 1759
+  [variant/q9/2] ok · 15903.6 мс · 23.55 ток/с · ctx 1759
+  [variant/q9/3] ok · 15917.1 мс · 23.53 ток/с · ctx 1759
+  [variant/q10/1] ok · 9978.4 мс · 23.96 ток/с · ctx 1267
+  [variant/q10/2] ok · 6135.5 мс · 24.01 ток/с · ctx 1267
+  [variant/q10/3] ok · 6134.9 мс · 24.0 ток/с · ctx 1267
+
+=== Оценка качества (судья DeepSeek) ===
+  [baseline/q1/1] score=1
+  [baseline/q1/2] score=1
+  [baseline/q1/3] score=1
+  [baseline/q2/1] score=1
+  [baseline/q2/2] score=1
+  [baseline/q2/3] score=1
+  [baseline/q3/1] score=1
+  [baseline/q3/2] score=1
+  [baseline/q3/3] score=1
+  [baseline/q4/1] score=2
+  [baseline/q4/2] score=2
+  [baseline/q4/3] score=2
+  [baseline/q5/1] score=1
+  [baseline/q5/2] score=1
+  [baseline/q5/3] score=1
+  [baseline/q6/1] score=1
+  [baseline/q6/2] score=0
+  [baseline/q6/3] score=1
+  [baseline/q7/1] score=1
+  [baseline/q7/2] score=1
+  [baseline/q7/3] score=1
+  [baseline/q8/1] score=1
+  [baseline/q8/2] score=1
+  [baseline/q8/3] score=1
+  [baseline/q9/1] score=2
+  [baseline/q9/2] score=2
+  [baseline/q9/3] score=2
+  [baseline/q10/1] score=2
+  [baseline/q10/2] score=2
+  [baseline/q10/3] score=2
+  [variant/q1/1] score=2
+  [variant/q1/2] score=2
+  [variant/q1/3] score=2
+  [variant/q2/1] score=1
+  [variant/q2/2] score=1
+  [variant/q2/3] score=1
+  [variant/q3/1] score=1
+  [variant/q3/2] score=1
+  [variant/q3/3] score=1
+  [variant/q4/1] score=2
+  [variant/q4/2] score=2
+  [variant/q4/3] score=2
+  [variant/q5/1] score=1
+  [variant/q5/2] score=1
+  [variant/q5/3] score=1
+  [variant/q6/1] score=0
+  [variant/q6/2] score=0
+  [variant/q6/3] score=0
+  [variant/q7/1] score=1
+  [variant/q7/2] score=1
+  [variant/q7/3] score=1
+  [variant/q8/1] score=1
+  [variant/q8/2] score=1
+  [variant/q8/3] score=1
+  [variant/q9/1] score=2
+  [variant/q9/2] score=2
+  [variant/q9/3] score=2
+  [variant/q10/1] score=2
+  [variant/q10/2] score=2
+  [variant/q10/3] score=2
+
+Отчёт: /Users/alexbaev/IdeaProjects/ai_advent_9/week06/day29/llm-optimization/reports/prompt_ab.md
