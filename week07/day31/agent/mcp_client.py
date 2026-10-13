@@ -18,6 +18,7 @@ import requests
 MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8888")
 CURRENCY_MCP_BASE_URL = os.environ.get("CURRENCY_MCP_BASE_URL", "http://localhost:8889")
 PIPELINE_MCP_BASE_URL = os.environ.get("PIPELINE_MCP_BASE_URL", "http://localhost:8890")
+GIT_MCP_BASE_URL = os.environ.get("GIT_MCP_BASE_URL", "http://localhost:8892")
 # Пайплайн-инструменты (особенно search через async Yandex v2) могут выполняться дольше.
 PIPELINE_MCP_TIMEOUT = float(os.environ.get("PIPELINE_MCP_TIMEOUT", "90"))
 MCP_TIMEOUT = float(os.environ.get("MCP_TIMEOUT", "10"))
@@ -227,3 +228,17 @@ class PipelineMcpClient(McpClient):
             base_url=base_url or PIPELINE_MCP_BASE_URL,
             timeout=timeout if timeout is not None else PIPELINE_MCP_TIMEOUT,
         )
+
+
+class GitMcpClient(McpClient):
+    """Клиент git-инструментов (git_branch, list_files, git_diff).
+
+    Используется ассистентом разработчика (команда /help) для получения
+    контекста проекта: текущая ветка, список файлов, изменения.
+    """
+
+    CLIENT_NAME = "agent-git-client"
+    SERVER_NAME = "git-mcp"
+
+    def __init__(self, base_url: str = None, timeout: float = None):
+        super().__init__(base_url=base_url or GIT_MCP_BASE_URL, timeout=timeout)

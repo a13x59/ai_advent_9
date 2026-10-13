@@ -44,3 +44,21 @@ class RagClient:
         if resp.status_code != 200:
             raise RuntimeError(f"RAG-retrieval HTTP {resp.status_code}: {resp.text}")
         return resp.json() or {}
+
+    def get_document(self, source: str, strategy: str = "structural") -> dict:
+        """Возвращает ПОЛНЫЙ текст документа по его source (напр. docs/agent_data_model.md).
+
+        Используется ассистентом разработчика (/help), чтобы отвечать полно и
+        подробно, а не только по топ-N найденным чанкам.
+        """
+        try:
+            resp = requests.post(
+                self.base_url + "/document",
+                json={"source": source, "strategy": strategy},
+                timeout=self.timeout,
+            )
+        except requests.RequestException as e:
+            raise RuntimeError(f"RAG-retrieval недоступен: {e}") from e
+        if resp.status_code != 200:
+            raise RuntimeError(f"RAG-retrieval HTTP {resp.status_code}: {resp.text}")
+        return resp.json() or {}

@@ -363,6 +363,22 @@ def _is_question(user_message: str) -> bool:
     return first_word in QUESTION_WORDS
 
 
+def _is_help_command(user_message: str):
+    """Распознаёт команду /help.
+
+    Возвращает строку вопроса после «/help» (может быть пустой) или None, если
+    сообщение не является командой /help. Совпадение только по слову /help с
+    границей (пробел/конец), чтобы не зацепить «/helper» и т.п.
+    """
+    t = (user_message or "").strip()
+    low = t.lower()
+    if low == "/help":
+        return ""
+    if low.startswith("/help") and len(low) > 5 and low[5].isspace():
+        return t[5:].strip()
+    return None
+
+
 # ------------------------------------------------------------
 # Маркер прогресса [STATE]
 # ------------------------------------------------------------
@@ -842,6 +858,132 @@ def build_rag_system_block(chunks) -> str:
     return "\n".join(lines)
 
 
+# Документация проекта в RAG-корпусе лежит под префиксом docs/agent_* (симлинки
+# на agent/README.md и agent/docs/*.md). Всё остальное (articles/*, code/*, чужие
+# README) — материалы прошлых заданий, и /help их использовать не должен.
+PROJECT_DOC_SOURCE_PREFIX = "docs/agent_"
+
+
+def _is_project_doc(chunk) -> bool:
+    src = (chunk.get("source") or "") if isinstance(chunk, dict) else ""
+    return src.startswith(PROJECT_DOC_SOURCE_PREFIX)
+
+
+def _expand_project_documents(rag_retriever, project_chunks, max_docs=3, max_chars=4000) -> list:
+    """Расширяет найденные чанки до ПОЛНЫХ документов проекта.
+
+    Обычный ретрив возвращает лишь топ-N чанков, а полный и подробный ответ
+    (например, «выведи схему БД») требует всего документа целиком. Для каждого
+    уникального source из project_chunks запрашиваем полный текст через
+    rag_retriever.get_document.
+    """
+    if not project_chunks:
+        return []
+    getter = getattr(rag_retriever, "get_document", None)
+    if getter is None:
+        return []
+    sources = []
+    for c in project_chunks:
+        src = c.get("source")
+        if src and src not in sources:
+            sources.append(src)
+    docs = []
+    for src in sources[:max_docs]:
+        try:
+            d = getter(src, strategy="structural")
+        except Exception as e:  # noqa: BLE001 — сервис может быть недоступен
+            logger.warning("Ошибка получения полного документа %s: %s", src, e)
+            continue
+        text = (d.get("text") or "").strip() if isinstance(d, dict) else ""
+        if not text:
+            continue
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n... (обрезано)"
+        docs.append({
+            "source": src,
+            "title": (d.get("title") if isinstance(d, dict) else "") or src,
+            "text": text,
+        })
+    return docs
+
+
+def build_help_system_block(chunks, git_context, full_docs=None) -> str:
+    """Формирует system-блок «ассистент разработчика» для команды /help.
+
+    При наличии full_docs (полные тексты документов проекта) используется их
+    содержимое целиком вместо топ-N чанков — так модель отвечает полно и подробно.
+    """
+    lines = [
+        "Ты — ассистент разработчика, который помогает разобраться в устройстве проекта.",
+        "Отвечай на русском, полно и подробно, опираясь на приведённые ниже "
+        "документацию проекта и контекст git-репозитория. Перечисляй все детали, "
+        "которые есть в документации, не сокращай их без необходимости.",
+        "Не выдумывай фактов, которых нет в контексте. Если информации не хватает — "
+        "скажи, чего именно не хватает.",
+        "В конце ответа приведи раздел «Источники» списком использованных файлов и разделов.",
+    ]
+    if full_docs:
+        lines.append("\nДОКУМЕНТАЦИЯ ПРОЕКТА (полные документы):")
+        for i, d in enumerate(full_docs or [], 1):
+            title = d.get("title") or d.get("source") or ""
+            src = d.get("source") or ""
+            lines.append(f"\n[{i}] {title}\nИсточник: {src}\n{d.get('text', '')}")
+    elif chunks:
+        lines.append("\nДОКУМЕНТАЦИЯ ПРОЕКТА:")
+        for i, c in enumerate(chunks or [], 1):
+            title = c.get("title") or ""
+            section = c.get("section") or ""
+            src = c.get("source") or ""
+            text = str(c.get("text", ""))
+            # Крупные чанки (таблицы API/схем) ограничиваем, чтобы блок /help
+            # не превышал бюджет контекста (AGENT_MAX_PROMPT_TOKENS).
+            if len(text) > 900:
+                text = text[:900] + "…"
+            header = f"[{i}] {title}" + (f" — {section}" if section else "")
+            lines.append(f"\n{header}\nИсточник: {src}\n{text}")
+    if git_context:
+        lines.append("\nКОНТЕКСТ ПРОЕКТА (git):")
+        for key, value in git_context.items():
+            value = str(value)
+            if len(value) > 1500:
+                value = value[:1500] + "\n... (сокращено)"
+            lines.append(f"- {key}:\n{value}")
+    return "\n".join(lines)
+
+
+def _find_git_client(clients):
+    """Возвращает MCP-клиент git-mcp из списка клиентов (или None)."""
+    for c in clients or []:
+        if getattr(c, "SERVER_NAME", None) == "git-mcp":
+            return c
+    return None
+
+
+def _collect_git_context(clients) -> dict:
+    """Детерминированно собирает git-контекст проекта (ветка + список файлов).
+
+    Вызывается напрямую (не через function-calling цикл), чтобы контекст проекта
+    всегда попадал в /help, даже если инструменты модели выключены.
+    """
+    client = _find_git_client(clients)
+    if client is None:
+        return {}
+    context: dict = {}
+    # Список файлов ограничиваем (40): полный список из ~170 путей раздувает
+    # контекст /help и вылетает за AGENT_MAX_PROMPT_TOKENS, а структура проекта
+    # и так описана в документации (RAG).
+    for tool, args in (("git_branch", {}), ("list_files", {"max_files": 40})):
+        try:
+            res = client.call_tool(tool, args)
+            if isinstance(res, dict) and res.get("ok"):
+                context[tool] = res.get("text", "")
+            else:
+                context[tool] = "недоступен"
+        except Exception as e:  # noqa: BLE001 — git-mcp может быть не запущен
+            context[tool] = f"недоступен: {e}"
+    return context
+
+
 def build_profile_system_block(profile) -> str:
     if not profile:
         return ""
@@ -1205,7 +1347,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             working = store.load_working(agent_id, working_profile_id)
             long_term = store.load_long_term_for_profile(profile["profile_id"] if profile else None)
 
-            # 2.5 Классификация запроса (задача / продолжение / подтверждение / чат).
+            # 2.5 Классификация запроса (задача / продолжение / подтверждение / чат / help).
+            help_question = _is_help_command(user_text)
+            is_help = help_question is not None
             is_new_task = _detect_task(user_text)
             is_continue = _is_continue(user_text)
 
@@ -1214,7 +1358,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             was_paused = False
             resume_instruction = None
 
-            if is_new_task:
+            if is_help:
+                mode = "help"
+            elif is_new_task:
                 mode = "task"
             else:
                 task = _resolve_task(store, agent_id, request.task_id)
@@ -1319,6 +1465,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             rag_context = None
             rag_abstain = False
             rag_sources = []
+            help_context = None
             if request.rag and rag_retriever is not None and user_text:
                 try:
                     rag_result = rag_retriever.retrieve(
@@ -1368,6 +1515,52 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                     logger.warning("Ошибка RAG-ретрива: %s", e)
                     rag_context = {"error": str(e)}
 
+            # 4.15 Команда /help: документация проекта (RAG) + контекст git (MCP).
+            if is_help:
+                help_chunks = []
+                help_sources = []
+                full_docs = []
+                rag_query = help_question or "структура проекта"
+                if rag_retriever is not None:
+                    try:
+                        # Забираем больше кандидатов и оставляем только документацию
+                        # проекта (docs/agent_*): общий корпус RAG (NLP-статьи и т.п.)
+                        # семантически вытесняет ответы о самом проекте.
+                        rag_result = rag_retriever.retrieve(
+                            rag_query,
+                            strategy="structural",
+                            top_k=max(20, request.rag_top_k * 4),
+                            mode="baseline",
+                        )
+                        if isinstance(rag_result, dict) and "chunks" in rag_result:
+                            raw_chunks = rag_result.get("chunks") or []
+                        else:
+                            raw_chunks = rag_result or []
+                        project_chunks = [c for c in raw_chunks if _is_project_doc(c)]
+                        help_chunks = (project_chunks or raw_chunks)[:request.rag_top_k]
+                        full_docs = _expand_project_documents(rag_retriever, project_chunks)
+                        help_sources = [
+                            {
+                                "n": i,
+                                "source": (c.get("source") or ""),
+                                "title": (c.get("title") or ""),
+                                "section": (c.get("section") or ""),
+                                "chunk_id": (c.get("chunk_id") or ""),
+                            }
+                            for i, c in enumerate(help_chunks or [], 1)
+                        ]
+                    except Exception as e:
+                        logger.warning("Ошибка RAG-ретрива для /help: %s", e)
+                git_context = _collect_git_context(clients)
+                help_block = build_help_system_block(help_chunks, git_context, full_docs)
+                request_messages.insert(0, {"role": "system", "content": help_block})
+                context_tokens += estimate_tokens(help_block)
+                help_context = {
+                    "question": rag_query,
+                    "sources": help_sources,
+                    "git": git_context,
+                }
+
             # 4.2 Guard контекста: не превышать лимит (num_ctx) — обрезаем старый
             #     диалог; если даже текущий запрос не влезает — явная ошибка 413.
             if context_tokens > max_prompt_tokens:
@@ -1411,6 +1604,9 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 task, content, data = _run_task_turn(
                     provider, request, request_messages, task, task_was_none, store, user_text
                 )
+            elif mode == "help":
+                data = provider.complete(request_messages, request, None, user_text)
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             else:
                 if tools_active:
                     content, tool_calls_info, data = _run_tool_loop(
@@ -1500,6 +1696,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                 "rag_context": rag_context,
                 "rag_abstained": rag_abstain,
                 "sources": rag_sources,
+                "help_context": help_context,
                 "pending_memory": pending_memory,
                 "memory_ops_applied": memory_ops_applied,
                 "duration": round(duration, 3),

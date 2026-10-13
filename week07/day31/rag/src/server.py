@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from . import config
 from .embedder import Embedder
 from .qa import answer_plain, answer_rag, rewrite_query
-from .retrieval import retrieve_with_mode
+from .retrieval import retrieve_with_mode, get_document
 
 logger = logging.getLogger("rag.server")
 app = FastAPI(title="RAG Retrieval Service")
@@ -52,6 +52,11 @@ class AnswerRequest(BaseModel):
     mode: str = Field("baseline", description="baseline|rewrite|filter|rewrite+filter|rerank")
     temperature: float = Field(0.0, ge=0.0, le=2.0)
     max_tokens: int = Field(1024, ge=1, le=4096)
+
+
+class DocumentRequest(BaseModel):
+    source: str = Field(..., description="source документа, напр. docs/agent_data_model.md")
+    strategy: str = Field("structural", description="fixed | structural")
 
 
 def _get_embedder() -> Embedder:
@@ -91,6 +96,13 @@ def retrieve_endpoint(req: RetrieveRequest):
     result["original_query"] = req.query
     result["rewritten_query"] = rewritten
     return result
+
+
+@app.post("/document")
+def document_endpoint(req: DocumentRequest):
+    if req.strategy not in ("fixed", "structural"):
+        raise HTTPException(status_code=400, detail="strategy должен быть fixed|structural")
+    return get_document(req.source, strategy=req.strategy)
 
 
 @app.post("/answer")

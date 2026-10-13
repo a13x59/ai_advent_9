@@ -1318,6 +1318,16 @@
             color: #9aa7bd;
         }
 
+        /* Сворачиваемая панель контекста /help (документация + git) */
+        .help-panel summary {
+            cursor: pointer;
+            user-select: none;
+            outline: none;
+        }
+        .help-panel summary:hover {
+            color: #c7c1ff;
+        }
+
         /* Индикатор режима RAG */
         .rag-mode-indicator {
             font-size: 11px;
@@ -1608,6 +1618,7 @@
             <div class="chat-messages" id="chatMessages"></div>
 
             <div class="quick-tools" id="quickTools" hidden>
+                <button class="tool-btn" id="helpBtn" title="Спросить ассистента о структуре проекта">❓ /help</button>
                 <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
                 <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
                 <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
@@ -1863,6 +1874,7 @@
     const ragMinScoreEl = document.getElementById('rag_min_score');
     const ragTopKEl = document.getElementById('rag_top_k');
     const ragTopKCandidatesEl = document.getElementById('rag_top_k_candidates');
+    const helpBtn = document.getElementById('helpBtn');
     const ballBtn = document.getElementById('ballBtn');
     const bookBtn = document.getElementById('bookBtn');
     const rateBtn = document.getElementById('rateBtn');
@@ -2144,7 +2156,46 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
+    // Контекст /help: документация (источники RAG) + git-контекст (ветка/файлы).
+    function renderHelpContext(help) {
+        if (!help) return;
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+
+        const srcs = (Array.isArray(help.sources) && help.sources.length)
+            ? help.sources.map(s => {
+                const parts = [];
+                if (s.source) parts.push(`<span class="tool-server">${escapeHtml(s.source)}</span>`);
+                if (s.title) parts.push(escapeHtml(s.title));
+                if (s.section) parts.push(`раздел: ${escapeHtml(s.section)}`);
+                return `<li>${parts.join(' · ')}</li>`;
+            }).join('')
+            : '<li>документация не найдена</li>';
+
+        let body = `<div class="sources-box"><span class="sources-title">📚 Документация (RAG)</span><ul>${srcs}</ul></div>`;
+
+        if (help.git && Object.keys(help.git).length) {
+            const gitHtml = Object.entries(help.git).map(([k, v]) => {
+                let text = String(v == null ? '' : v);
+                try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* не JSON — как есть */ }
+                return `<div class="tool-args"><b>${escapeHtml(k)}</b><div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px;font-size:.8rem">${escapeHtml(text)}</div></div>`;
+            }).join('');
+            body += `<div class="sources-box"><span class="sources-title">🌿 git</span>${gitHtml}</div>`;
+        }
+
+        const inner = `<details class="sources-box help-panel"><summary class="sources-title">📚 Контекст проекта (документация + git)</summary>${body}</details>`;
+
+        div.innerHTML = `<div class="avatar">📚</div><div class="bubble">${inner}</div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
     // Быстрое демо: заполнить поле и сразу отправить с включёнными инструментами.
+    function quickHelp() {
+        messageEl.value = '/help расскажи о структуре проекта';
+        messageEl.focus();
+        sendRe
+
     function quickBall() {
         const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
         if (q === null || !q.trim()) return;
@@ -3028,6 +3079,7 @@
             }
             renderChat();
             renderToolCalls(data.tool_calls || []);
+            renderHelpContext(data.help_context);
 
             memory = data.memory || {working: [], long_term: []};
             pendingMemory = filterPending(data.pending_memory || []);
@@ -3230,6 +3282,7 @@
     }
     sendBtn.addEventListener('click', sendRequest);
     resetBtn.addEventListener('click', resetChat);
+    helpBtn.addEventListener('click', quickHelp);
     ballBtn.addEventListener('click', quickBall);
     bookBtn.addEventListener('click', quickBook);
     rateBtn.addEventListener('click', quickRate);

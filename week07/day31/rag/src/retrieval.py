@@ -255,3 +255,26 @@ def retrieve_with_mode(query: str, strategy: str = "structural", top_k: int | No
         "below_relevance": _relevance_gate(final)[1],
         "relevance_threshold": config.RELEVANCE_THRESHOLD,
     }
+
+
+def get_document(source: str, strategy: str = "structural",
+                 index_dir: str | Path | None = None) -> dict:
+    """Возвращает ПОЛНЫЙ текст документа — конкатенацию его чанков по порядку.
+
+    Нужен ассистенту разработчика (/help): обычный ретрив возвращает лишь топ-N
+    чанков, а для полного и подробного ответа (например, «выведи схему БД»)
+    нужен весь документ целиком.
+    """
+    index_dir = Path(index_dir) if index_dir else INDEX_DIR
+    _index, records, _manifest = load_index(strategy, index_dir)
+    chunks = [r for r in records if r.get("source") == source]
+    if not chunks:
+        return {"source": source, "title": "", "text": "", "n_chunks": 0}
+    chunks.sort(key=lambda r: (r.get("char_start") or 0, r.get("chunk_id") or ""))
+    text = "\n\n".join(r.get("text") or "" for r in chunks)
+    return {
+        "source": source,
+        "title": chunks[0].get("title") or "",
+        "text": text,
+        "n_chunks": len(chunks),
+    }
