@@ -105,7 +105,7 @@ def main() -> None:
     # 2) Rate limit: шлём сверх лимита с отдельного IP и ждём 429.
     print("\n==> Rate limit (ожидаем 429)")
     limits = requests.get(base + "/limits", headers=_headers(args.api_key), timeout=30).json()
-    per_min = int(str(limits.get("rate_limit", "5/minute")).split("/")[0])
+    per_min = int(str(limits.get("rate_limit", "20/minute")).split("/")[0])
     got_429 = False
     for i in range(per_min + 3):
         payload = {"model": DEFAULT_MODEL, "messages": [{"role": "user", "content": "ping"}]}

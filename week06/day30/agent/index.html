@@ -1821,14 +1821,18 @@
     // === Конфигурация (хост/модели вынесены в config.js) ===
     const APP_CONFIG = window.APP_CONFIG || {};
     const HAS_CONFIG = !!window.APP_CONFIG;
+    // Фолбэк, если config.js не загрузился: при file:// (локальная разработка)
+    // — localhost, а если страницу раздаёт сервер (http/https) — тот же origin.
+    // Иначе браузер заблокирует запрос к localhost (Private Network Access).
+    const IS_FILE = window.location.protocol === 'file:';
     const BACKENDS = {
         cloud: {
-            base: HAS_CONFIG ? (APP_CONFIG.cloudBase ?? '') : 'http://localhost:8000',
+            base: HAS_CONFIG ? (APP_CONFIG.cloudBase ?? '') : (IS_FILE ? 'http://localhost:8000' : ''),
             model: APP_CONFIG.cloudModel || 'deepseek-chat',
             badge: 'DeepSeek',
         },
         local: {
-            base: HAS_CONFIG ? (APP_CONFIG.localBase ?? '') : 'http://localhost:8002',
+            base: HAS_CONFIG ? (APP_CONFIG.localBase ?? '') : (IS_FILE ? 'http://localhost:8002' : ''),
             model: APP_CONFIG.localModel || 'qwen2.5:1.5b',
             badge: 'Локальная LLM',
         },

@@ -57,7 +57,7 @@ python scripts/load_test.py --base http://<IP> --api-key KEY --n 8 --concurrency
 | `OLLAMA_MODEL` | `qwen2.5:1.5b` | компактная модель (фолбэки: `llama3.2:1b`, `qwen2.5:0.5b`) |
 | `OLLAMA_NUM_CTX` | `2048` | контекстное окно (KV-кэш) |
 | `OLLAMA_MAX_CONCURRENCY` | `2` | одновременных вызовов модели |
-| `AGENT_RATE_LIMIT_PER_MINUTE` | `5` | rate limit per-IP |
+| `AGENT_RATE_LIMIT_PER_MINUTE` | `20` | rate limit per-IP |
 | `AGENT_MAX_PROMPT_TOKENS` | `1536` | бюджет промпта (защита от переполнения) |
 | `AGENT_API_KEY` | авто | ключ `X-Api-Key` для nginx |
 

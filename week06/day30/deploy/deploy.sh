@@ -2,12 +2,12 @@
 # deploy.sh — развёртывание приватного AI-сервиса (агент + Ollama) на VPS.
 #
 # Запуск от root:   sudo bash deploy/deploy.sh
-# Требования: Ubuntu/Debian, >= 2 ГБ RAM (CPU-only), доступ в интернет.
+# Целевая ОС: Ubuntu 24.04 (Noble), CPU-only, >= 2 ГБ RAM, доступ в интернет.
 #
 # Что делает:
 #   1) ставит пакеты, Ollama, nginx, ufw;
 #   2) закрывает Ollama на loopback и ограничивает её ресурсы;
-#   3) готовит .env (модель qwen2.5:1.5b, rate limit 5/min) и API-ключ;
+#   3) готовит .env (модель qwen2.5:1.5b, rate limit 20/min) и API-ключ;
 #   4) качает модель, ставит venv и systemd-юнит агента (uvicorn 127.0.0.1:8002);
 #   5) настраивает nginx (front + API с X-Api-Key) и firewall.
 set -euo pipefail
@@ -23,10 +23,18 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# --- 0. Проверка ресурсов (модель ~1 ГБ + ОС + агент) ---
+RAM_MB="$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')"
+echo "==> RAM: ${RAM_MB} МБ"
+if [ "$RAM_MB" -lt 1800 ]; then
+    echo "ВНИМАНИЕ: RAM < 2 ГБ — возможен OOM. Рекомендую модель" >&2
+    echo "         llama3.2:1b / qwen2.5:0.5b или OLLAMA_NUM_CTX=1024." >&2
+fi
+
 # --- 1. Пакеты ---
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl python3 python3-venv python3-pip nginx ufw openssl
+apt-get install -y curl ca-certificates python3 python3-venv python3-pip nginx ufw openssl
 
 # --- 2. Ollama ---
 if ! command -v ollama >/dev/null 2>&1; then
@@ -51,14 +59,21 @@ systemctl restart ollama
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
     cp "$SCRIPT_DIR/.env.example" "$PROJECT_ROOT/.env"
 fi
-# API-ключ: генерируем, если не задан.
-if ! grep -q '^AGENT_API_KEY=.' "$PROJECT_ROOT/.env"; then
-    echo "AGENT_API_KEY=$(openssl rand -hex 24)" >> "$PROJECT_ROOT/.env"
+# API-ключ: генерируем, если строка пустая или отсутствует.
+# Используем sed-ЗАМЕНУ, а не добавление (>>) — иначе в .env появляются дубли,
+# и значение с переводом строки ломает подстановку в nginx.
+if ! grep -qE '^AGENT_API_KEY=.+' "$PROJECT_ROOT/.env"; then
+    NEW_KEY="$(openssl rand -hex 24)"
+    if grep -q '^AGENT_API_KEY=' "$PROJECT_ROOT/.env"; then
+        sed -i "s|^AGENT_API_KEY=.*|AGENT_API_KEY=$NEW_KEY|" "$PROJECT_ROOT/.env"
+    else
+        echo "AGENT_API_KEY=$NEW_KEY" >> "$PROJECT_ROOT/.env"
+    fi
 fi
-# Фиксируем целевые значения (компактная модель, маленький контекст, rate limit 5).
+# Фиксируем целевые значения (компактная модель, маленький контекст, rate limit 20).
 sed -i 's|^OLLAMA_MODEL=.*|OLLAMA_MODEL=qwen2.5:1.5b|' "$PROJECT_ROOT/.env"
 sed -i 's|^OLLAMA_NUM_CTX=.*|OLLAMA_NUM_CTX=2048|' "$PROJECT_ROOT/.env"
-sed -i 's|^AGENT_RATE_LIMIT_PER_MINUTE=.*|AGENT_RATE_LIMIT_PER_MINUTE=5|' "$PROJECT_ROOT/.env"
+sed -i 's|^AGENT_RATE_LIMIT_PER_MINUTE=.*|AGENT_RATE_LIMIT_PER_MINUTE=20|' "$PROJECT_ROOT/.env"
 sed -i 's|^AGENT_MAX_PROMPT_TOKENS=.*|AGENT_MAX_PROMPT_TOKENS=1536|' "$PROJECT_ROOT/.env"
 
 # --- 4.5 Конфиг фронта для VPS (same-origin, модель qwen) ---
@@ -74,13 +89,21 @@ window.APP_CONFIG = {
     apiKey: '',   // ключ вводится в интерфейсе (X-Api-Key)
 };
 EOF
+# nginx (www-data) должен читать статику фронта. rsync мог принести config.js
+# с правами 600, а `cat >` их не меняет — иначе фронт получит 403.
+chmod 644 "$AGENT_DIR/config.js" "$AGENT_DIR/index.html"
 
-MODEL="$(grep -E '^OLLAMA_MODEL=' "$PROJECT_ROOT/.env" | cut -d= -f2-)"
-API_KEY="$(grep -E '^AGENT_API_KEY=' "$PROJECT_ROOT/.env" | cut -d= -f2-)"
+MODEL="$(grep -E '^OLLAMA_MODEL=' "$PROJECT_ROOT/.env" | head -1 | cut -d= -f2-)"
+# Берём ТОЛЬКО непустое значение (защита от дублей вида "AGENT_API_KEY=").
+API_KEY="$(grep -E '^AGENT_API_KEY=.+' "$PROJECT_ROOT/.env" | head -1 | cut -d= -f2-)"
 
-# --- 5. Модель ---
-echo "==> Загрузка модели Ollama: $MODEL"
-ollama pull "$MODEL"
+# --- 5. Модель (пропускаем, если уже скачана) ---
+if ollama list | awk '{print $1}' | grep -qx "$MODEL"; then
+    echo "==> Модель $MODEL уже установлена"
+else
+    echo "==> Загрузка модели Ollama: $MODEL"
+    ollama pull "$MODEL"
+fi
 
 # --- 6. Python venv агента ---
 python3 -m venv "$AGENT_DIR/.venv"

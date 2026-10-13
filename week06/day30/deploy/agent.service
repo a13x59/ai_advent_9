@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=__PROJECT_ROOT__/agent
 # Один worker: rate-limit держится в памяти процесса (для нескольких воркеров
 # нужен общий redis-бэкенд). Ollama слушает loopback, наружу не торчит.
-ExecStart=__PROJECT_ROOT__/agent/.venv/bin/uvicorn local_main:app --host 127.0.0.1 --port 8002 --proxy-headers --forwarded-allow-ips='*'
+ExecStart=__PROJECT_ROOT__/agent/.venv/bin/uvicorn local_main:app --host 127.0.0.1 --port 8002 --proxy-headers --forwarded-allow-ips=*
 Restart=on-failure
 RestartSec=3
 

@@ -1121,7 +1121,7 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
 
     # Настройки сервиса (переопределяются через переменные окружения).
     # Rate limit — на уровне агента (per-IP), т.к. Ollama лимиты не умеет.
-    rate_limit_per_minute = int(os.environ.get("AGENT_RATE_LIMIT_PER_MINUTE", "5"))
+    rate_limit_per_minute = int(os.environ.get("AGENT_RATE_LIMIT_PER_MINUTE", "20"))
     max_prompt_tokens = int(os.environ.get("AGENT_MAX_PROMPT_TOKENS", "2048"))
 
     app = FastAPI(title="AI Agent Service", description="Обработка запросов к модели")
