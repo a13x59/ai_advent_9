@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from . import config
+from .config import corpus_paths
 from .embedder import Embedder
 from .qa import answer_plain, answer_rag, rewrite_query
 from .retrieval import retrieve_with_mode, get_document
@@ -40,6 +41,7 @@ class RetrieveRequest(BaseModel):
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0,
                                        description="Порог отсечения (filter-режим)")
     mode: str = Field("baseline", description="baseline|rewrite|filter|rewrite+filter|rerank")
+    corpus: str = Field("docs", description="docs | codebase — какой индекс использовать")
 
 
 class AnswerRequest(BaseModel):
@@ -57,6 +59,7 @@ class AnswerRequest(BaseModel):
 class DocumentRequest(BaseModel):
     source: str = Field(..., description="source документа, напр. docs/agent_data_model.md")
     strategy: str = Field("structural", description="fixed | structural")
+    corpus: str = Field("docs", description="docs | codebase — какой индекс использовать")
 
 
 def _get_embedder() -> Embedder:
@@ -77,6 +80,10 @@ def retrieve_endpoint(req: RetrieveRequest):
         raise HTTPException(status_code=400, detail="strategy должен быть fixed|structural")
     if req.mode not in config.MODES:
         raise HTTPException(status_code=400, detail=f"mode должен быть один из {config.MODES}")
+    try:
+        index_dir = corpus_paths(req.corpus)["index_dir"]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     query = req.query
     rewritten = None
@@ -91,10 +98,11 @@ def retrieve_endpoint(req: RetrieveRequest):
     result = retrieve_with_mode(
         query, strategy=req.strategy, top_k=req.top_k,
         top_k_candidates=req.top_k_candidates, min_score=req.min_score,
-        mode=req.mode, embedder=_get_embedder(),
+        mode=req.mode, embedder=_get_embedder(), index_dir=index_dir,
     )
     result["original_query"] = req.query
     result["rewritten_query"] = rewritten
+    result["corpus"] = req.corpus
     return result
 
 
@@ -102,7 +110,11 @@ def retrieve_endpoint(req: RetrieveRequest):
 def document_endpoint(req: DocumentRequest):
     if req.strategy not in ("fixed", "structural"):
         raise HTTPException(status_code=400, detail="strategy должен быть fixed|structural")
-    return get_document(req.source, strategy=req.strategy)
+    try:
+        index_dir = corpus_paths(req.corpus)["index_dir"]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return get_document(req.source, strategy=req.strategy, index_dir=index_dir)
 
 
 @app.post("/answer")

@@ -27,8 +27,9 @@ class RagClient:
 
     def retrieve(self, query: str, strategy: str = "structural", top_k: int = 5,
                  mode: str = "baseline", top_k_candidates: int = None,
-                 min_score: float = None) -> dict:
-        payload = {"query": query, "strategy": strategy, "top_k": top_k, "mode": mode}
+                 min_score: float = None, corpus: str = "docs") -> dict:
+        payload = {"query": query, "strategy": strategy, "top_k": top_k, "mode": mode,
+                   "corpus": corpus}
         if top_k_candidates is not None:
             payload["top_k_candidates"] = top_k_candidates
         if min_score is not None:
@@ -45,7 +46,8 @@ class RagClient:
             raise RuntimeError(f"RAG-retrieval HTTP {resp.status_code}: {resp.text}")
         return resp.json() or {}
 
-    def get_document(self, source: str, strategy: str = "structural") -> dict:
+    def get_document(self, source: str, strategy: str = "structural",
+                     corpus: str = "docs") -> dict:
         """Возвращает ПОЛНЫЙ текст документа по его source (напр. docs/agent_data_model.md).
 
         Используется ассистентом разработчика (/help), чтобы отвечать полно и
@@ -54,7 +56,7 @@ class RagClient:
         try:
             resp = requests.post(
                 self.base_url + "/document",
-                json={"source": source, "strategy": strategy},
+                json={"source": source, "strategy": strategy, "corpus": corpus},
                 timeout=self.timeout,
             )
         except requests.RequestException as e:

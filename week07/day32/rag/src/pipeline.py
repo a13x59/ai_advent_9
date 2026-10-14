@@ -19,6 +19,8 @@ from .embedder import EMBEDDING_DIM, Embedder, MODEL_NAME
 from .evaluate import QUERIES, evaluate_strategy, threshold_sweep
 from .indexer import build_index, load_index
 from .loader import load_documents
+from .config import CORPUSES, corpus_paths
+from .codebase import sync_codebase
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data" / "raw"
@@ -27,16 +29,36 @@ REPORT_DIR = ROOT / "reports"
 STRATEGIES = ["fixed", "structural"]
 
 
+def _corpus_dirs(corpus: str) -> tuple:
+    """(data_dir, index_dir) для корпуса; для обратной совместимости
+    eval/sweep остаются на корпусе docs."""
+    paths = corpus_paths(corpus)
+    return paths["data_dir"], paths["index_dir"]
+
+
+def _sync_if_codebase(corpus: str) -> None:
+    """Корпус codebase — производный от исходников проекта: перед чтением
+    автоматически синхронизируем симлинки (новые файлы + удаление битых)."""
+    if corpus == "codebase":
+        print("Синхронизация симлинков корпуса codebase…")
+        sync_codebase()
+
+
 def cmd_list(args: argparse.Namespace) -> None:
-    docs = load_documents(DATA_DIR)
+    _sync_if_codebase(getattr(args, "corpus", "docs"))
+    data_dir, _index_dir = _corpus_dirs(getattr(args, "corpus", "docs"))
+    docs = load_documents(data_dir)
     total = sum(len(d.text) for d in docs)
-    print(f"Документов: {len(docs)}, суммарно {total:,} симв.")
+    print(f"Корпус: {getattr(args, 'corpus', 'docs')} | документов: {len(docs)}, "
+          f"суммарно {total:,} симв.")
     for d in docs:
         print(f"  [{d.file_type:7}] {d.source:45} {len(d.text):>8,} симв.")
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    docs = load_documents(DATA_DIR)
+    _sync_if_codebase(getattr(args, "corpus", "docs"))
+    data_dir, index_dir = _corpus_dirs(getattr(args, "corpus", "docs"))
+    docs = load_documents(data_dir)
     total_chars = sum(len(d.text) for d in docs)
     print(f"Загружено документов: {len(docs)} ({total_chars:,} симв.)")
     print(f"Модель эмбеддингов: {args.model}")
@@ -58,7 +80,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         t_embed = time.time() - t1
 
         t2 = time.time()
-        manifest = build_index(chunks, embeddings, strategy, INDEX_DIR,
+        manifest = build_index(chunks, embeddings, strategy, index_dir,
                                embedder.model_name, EMBEDDING_DIM)
         t_build = time.time() - t2
 
@@ -82,10 +104,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         )
         print(f"  размер: faiss {manifest['faiss_size_mb']} MB | db {manifest['db_size_mb']} MB")
 
-    (INDEX_DIR / "summary.json").write_text(
+    (index_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\nСводка сохранена в {INDEX_DIR / 'summary.json'}")
+    print(f"\nСводка сохранена в {index_dir / 'summary.json'}")
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
@@ -141,8 +163,9 @@ def cmd_sweep(args: argparse.Namespace) -> None:
 
 
 def cmd_query(args: argparse.Namespace) -> None:
+    _data_dir, index_dir = _corpus_dirs(getattr(args, "corpus", "docs"))
     embedder = Embedder(args.model)
-    index, records, manifest = load_index(args.strategy, INDEX_DIR)
+    index, records, manifest = load_index(args.strategy, index_dir)
     emb = embedder.embed([args.query], batch_size=1, show_progress=False)
     dists, idxs = index.search(emb, args.top_k)
     print(f"Стратегия: {args.strategy} | запрос: {args.query!r}\n")
@@ -162,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run", help="собрать индексы")
     p_run.add_argument("--batch-size", type=int, default=32)
+    p_run.add_argument("--corpus", choices=sorted(CORPUSES), default="docs")
     p_eval = sub.add_parser("eval", help="метрики на тест-сете")
     p_eval.add_argument("--top-k", type=int, default=10)
     p_sweep = sub.add_parser("sweep", help="сетка порогов отсечения (precision/recall)")
@@ -170,8 +194,10 @@ def main(argv: list[str] | None = None) -> int:
     p_query = sub.add_parser("query", help="поисковый запрос")
     p_query.add_argument("--strategy", "-s", choices=STRATEGIES, default="structural")
     p_query.add_argument("--top-k", type=int, default=5)
+    p_query.add_argument("--corpus", choices=sorted(CORPUSES), default="docs")
     p_query.add_argument("query")
-    sub.add_parser("list", help="список документов")
+    p_list = sub.add_parser("list", help="список документов")
+    p_list.add_argument("--corpus", choices=sorted(CORPUSES), default="docs")
 
     args = parser.parse_args(argv)
 

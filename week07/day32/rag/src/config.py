@@ -40,3 +40,32 @@ MODES = ["baseline", "rewrite", "filter", "rewrite+filter", "rerank"]
 
 # Сетка порогов для sweep-анализа (подбор MIN_SCORE).
 SWEEP_THRESHOLDS = [0.0, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+
+# --------------------------------------------------------------------------- #
+# Корпуса (День 32)
+# --------------------------------------------------------------------------- #
+# «docs» — существующий корпус: статьи + внешние README/код + документация
+# проекта (data/raw → indexes/). «codebase» — ОТДЕЛЬНЫЙ индекс исходного кода
+# проекта (data/codebase → indexes/codebase/), чтобы код не смешивался с
+# NLP-корпусом и не влиял на метрики Day 23–28.
+from pathlib import Path  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+
+CORPUSES = {
+    "docs": {
+        "data_dir": ROOT / "data" / "raw",
+        "index_dir": ROOT / "indexes",
+    },
+    "codebase": {
+        "data_dir": ROOT / "data" / "codebase",
+        "index_dir": ROOT / "indexes" / "codebase",
+    },
+}
+
+
+def corpus_paths(corpus: str) -> dict:
+    """Возвращает {"data_dir", "index_dir"} для корпуса."""
+    if corpus not in CORPUSES:
+        raise ValueError(f"unknown corpus: {corpus} (expected {sorted(CORPUSES)})")
+    return CORPUSES[corpus]

@@ -15,7 +15,8 @@ from pathlib import Path
 
 from .models import Document
 
-TEXT_EXTS = {".txt", ".md", ".py", ".rst", ".json", ".yaml", ".yml", ".js", ".ts"}
+TEXT_EXTS = {".txt", ".md", ".py", ".rst", ".json", ".yaml", ".yml", ".js", ".ts",
+             ".kt", ".kts", ".sh", ".bash"}
 
 
 def _file_type(rel_path: Path) -> str:

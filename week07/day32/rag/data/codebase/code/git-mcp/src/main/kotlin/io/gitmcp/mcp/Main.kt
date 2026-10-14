@@ -1,0 +1,1 @@
+../../../../../../../../../../../git-mcp/src/main/kotlin/io/gitmcp/mcp/Main.kt

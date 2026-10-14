@@ -1,0 +1,61 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install review dependencies
+        run: |
+          cd week07/day32
+          python -m pip install --upgrade pip
+          pip install -r pr_review/requirements.txt
+
+      - name: Fetch PR diff
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3.diff" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR" > /tmp/pr.diff
+          echo "Diff lines: $(wc -l < /tmp/pr.diff)"
+
+      # Переключатели:
+      #   REVIEW_BACKEND  = script (по умолчанию) | agent (локально, с запущенным агентом)
+      #   REVIEW_PROVIDER = deepseek (по умолчанию) | ollama (локальная модель)
+      # Задаются как Repository variables (Settings -> Secrets and variables -> Actions).
+      - name: Run AI review and post comment
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_PROVIDER: ${{ vars.REVIEW_PROVIDER || 'deepseek' }}
+          REVIEW_BACKEND: ${{ vars.REVIEW_BACKEND || 'script' }}
+        run: |
+          cd week07/day32
+          python -m pr_review.review_pr \
+            --diff-file /tmp/pr.diff \
+            --backend "$REVIEW_BACKEND" \
+            --provider "$REVIEW_PROVIDER" \
+            --post-comment \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --output /tmp/review.md
+          echo "--- AI review ---" >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/review.md >> "$GITHUB_STEP_SUMMARY"

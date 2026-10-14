@@ -181,6 +181,15 @@ class AgentRequest(BaseModel):
     task_id: Optional[str] = Field(None, description="ID задачи, к которой относится запрос")
 
 
+class ReviewRequest(BaseModel):
+    """Запрос AI-ревью diff (День 32, подход A — через агента)."""
+    diff: str = Field(..., description="Unified diff для ревью")
+    model: str = Field("deepseek-chat", description="Название модели")
+    temperature: Optional[float] = Field(0.2, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(2048, ge=1, le=8192)
+    use_rag: bool = Field(True, description="Использовать RAG (код + документация)")
+
+
 class BranchRequest(BaseModel):
     checkpoint: Optional[int] = Field(None, description="Индекс сообщения, от которого ветвимся")
 
@@ -1245,6 +1254,27 @@ def _resolve_task(store: HistoryStorage, session_id: str, task_id: Optional[str]
 # ------------------------------------------------------------
 # Фабрика FastAPI-приложения
 # ------------------------------------------------------------
+class _AgentRagAdapter:
+    """Адаптирует RagClient агента (retrieve → dict) к интерфейсу
+    pr_review.rag_client (retrieve → list[chunk])."""
+
+    def __init__(self, rag_retriever):
+        self._r = rag_retriever
+
+    def retrieve(self, query: str, corpus: str = "codebase", top_k: int = 5,
+                 strategy: str = "structural", mode: str = "baseline") -> list:
+        resp = self._r.retrieve(query, corpus=corpus, top_k=top_k,
+                                strategy=strategy, mode=mode)
+        if isinstance(resp, dict):
+            chunks = resp.get("chunks") or []
+        else:
+            chunks = resp or []
+        for c in chunks:
+            if isinstance(c, dict):
+                c.setdefault("corpus", corpus)
+        return chunks
+
+
 def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
                mcp_client=None, mcp_clients=None, rag_retriever=None) -> FastAPI:
     """Собирает FastAPI-приложение со всеми эндпоинтами на едином пайплайне.
@@ -1293,6 +1323,70 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             "max_prompt_tokens": max_prompt_tokens,
             "ollama_num_ctx": os.environ.get("OLLAMA_NUM_CTX", "2048"),
             "ollama_max_concurrency": os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"),
+        }
+
+    @app.post("/review")
+    def review_endpoint(request: ReviewRequest):
+        """AI-ревью diff (День 32, подход A — полный агентский пайплайн).
+
+        Получает unified diff, собирает контекст (детерминированный + RAG по
+        корпусам docs/codebase) и генерирует ревью через провайдера агента
+        (DeepSeek в main.py или локальная Ollama в local_main.py).
+        """
+        # pr_review лежит рядом с agent/, поэтому добавляем корень проекта в path.
+        import sys
+        from pathlib import Path as _Path
+        _root = _Path(__file__).resolve().parent.parent
+        if str(_root) not in sys.path:
+            sys.path.insert(0, str(_root))
+        try:
+            from pr_review import context as pr_ctx
+            from pr_review import prompt as pr_prompt
+            from pr_review import rag_client as pr_rag
+            from pr_review.diff_utils import changed_files as pr_changed_files
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"pr_review недоступен: {e}")
+
+        diff_text = request.diff or ""
+        if not diff_text.strip():
+            raise HTTPException(status_code=400, detail="diff пуст")
+
+        files = pr_changed_files(diff_text)
+
+        context_blocks = pr_ctx.build_deterministic_context(files)
+        context_text = pr_ctx.render_context(context_blocks)
+
+        rag_chunks: list = []
+        rag_text = ""
+        if request.use_rag and rag_retriever is not None:
+            try:
+                adapter = _AgentRagAdapter(rag_retriever)
+                rag_chunks = pr_rag.retrieve_review_context(
+                    files, diff_text, client=adapter, top_k=4)
+                rag_text = pr_rag.render_rag_context(rag_chunks)
+            except Exception as e:  # noqa: BLE001 — RAG опционален
+                logger.warning("RAG недоступен для /review: %s", e)
+
+        messages = pr_prompt.build_review_messages(diff_text, files, context_text, rag_text)
+        agent_req = AgentRequest(
+            messages=messages,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+        data = provider.complete(messages, agent_req, task=None,
+                                 user_text=diff_text, tools=None)
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") \
+            if isinstance(data, dict) else str(data)
+
+        return {
+            "review_text": content,
+            "sections": pr_prompt.split_sections(content),
+            "changed_files": files,
+            "rag_chunks": rag_chunks,
+            "context_sources": [b.title for b in context_blocks],
+            "provider": type(provider).__name__,
+            "model": request.model,
         }
 
     @app.post("/agent")
