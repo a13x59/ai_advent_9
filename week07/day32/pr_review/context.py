@@ -15,9 +15,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent  # .../week07/day32
+REPO_ROOT = ROOT.parents[1]                    # .../ai_advent_9 (корень монорепо)
 
 MAX_FILE_CHARS = 12_000
 MAX_TOTAL_CHARS = 40_000
+
+
+def normalize_path(path: str) -> str:
+    """Приводит путь из diff к виду относительно ROOT (day32).
+
+    PR-diff от GitHub даёт пути от корня монорепо (week07/day32/...), а локальные
+    сэмплы — сразу от day32. Здесь отрезаем префикс монорепо, если он есть.
+    """
+    parts = Path(path).parts
+    if len(parts) >= 3 and parts[0] == "week07" and parts[1] == "day32":
+        return Path(*parts[2:]).as_posix()
+    return path
 
 # Какой документации сопоставлять изменённую папку.
 DOC_FOR_PREFIX = [
@@ -52,17 +65,25 @@ def _truncate(text: str, max_chars: int) -> str:
 
 
 def read_current_file(rel_path: str) -> str | None:
-    """Текущая полная версия файла из рабочего дерева (None, если нет/бинарный)."""
-    p = ROOT / rel_path
-    try:
-        if not p.is_file():
-            return None
-        data = p.read_bytes()
-        if b"\x00" in data[:4096]:
-            return None  # бинарный
-        return data.decode("utf-8", errors="replace")
-    except OSError:
-        return None
+    """Текущая полная версия файла из рабочего дерева (None, если нет/бинарный).
+
+    Пробует несколько корней: сначала ROOT (day32), затем REPO_ROOT (монорепо),
+    чтобы одинаково работали и локальные сэмплы (пути от day32), и PR-diff
+    (пути от корня монорепо week07/day32/...).
+    """
+    rel_path = normalize_path(rel_path)
+    for root in (ROOT, REPO_ROOT):
+        p = root / rel_path
+        try:
+            if not p.is_file():
+                continue
+            data = p.read_bytes()
+            if b"\x00" in data[:4096]:
+                return None  # бинарный
+            return data.decode("utf-8", errors="replace")
+        except OSError:
+            continue
+    return None
 
 
 def _local_module_to_path(module: str, base_dir: str) -> str | None:
@@ -152,11 +173,12 @@ def build_doc_context(changed_files: list[str]) -> list[ContextBlock]:
 
 def build_deterministic_context(changed_files: list[str]) -> list[ContextBlock]:
     """Собирает уровни 1–3 с общим бюджетом."""
+    files = [normalize_path(f) for f in changed_files]
     blocks: list[ContextBlock] = []
     total = 0
-    for b in build_full_file_context(changed_files) + \
-             build_related_context(changed_files) + \
-             build_doc_context(changed_files):
+    for b in build_full_file_context(files) + \
+             build_related_context(files) + \
+             build_doc_context(files):
         if total + len(b.content) > MAX_TOTAL_CHARS and total > 0:
             break
         blocks.append(b)

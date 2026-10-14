@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # day32
 from pr_review.diff_utils import (  # noqa: E402
     changed_files, chunk_diff, is_generated, parse_diff,
 )
+from pr_review import context as pr_ctx  # noqa: E402
 from pr_review.prompt import build_review_messages, split_sections  # noqa: E402
 from pr_review.engine import run_review  # noqa: E402
 
@@ -81,6 +82,14 @@ def test_build_review_messages_contains_diff_and_files():
     assert msgs[0]["role"] == "system"
     assert "agent/storage.py" in msgs[1]["content"]
     assert "load_working" in msgs[1]["content"]
+
+
+def test_normalize_path_handles_monorepo_prefix():
+    assert pr_ctx.normalize_path("week07/day32/agent/rag_client.py") == "agent/rag_client.py"
+    assert pr_ctx.normalize_path("agent/rag_client.py") == "agent/rag_client.py"
+    # read_current_file должен читать файл и по репо-корневому, и по day32-пути
+    assert pr_ctx.read_current_file("week07/day32/agent/rag_client.py")
+    assert pr_ctx.read_current_file("agent/rag_client.py")
 
 
 def test_run_review_with_fake_completion():

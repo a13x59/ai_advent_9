@@ -38,6 +38,9 @@
 ```bash
 cd week07/day32
 
+# пошаговый сценарий демонстрации (без ключа)
+python -m pr_review.demo
+
 # демо (dry-run, без LLM)
 python -m pr_review.review_pr --diff-file pr_review/samples/example_pr.diff --dry-run
 
