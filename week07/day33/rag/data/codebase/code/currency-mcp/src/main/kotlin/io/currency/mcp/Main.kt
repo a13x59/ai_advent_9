@@ -1,0 +1,1 @@
+../../../../../../../../../../../currency-mcp/src/main/kotlin/io/currency/mcp/Main.kt

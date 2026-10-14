@@ -1,0 +1,1 @@
+../../../../../../../../../../../../fortune-telling-mcp/src/main/kotlin/io/fortunetelling/mcp/web/RestRoutes.kt

@@ -1,0 +1,11 @@
+.venv/
+models_cache/
+__pycache__/
+*.pyc
+indexes/*.faiss
+indexes/*.db
+indexes/*.json
+# Отдельный индекс кода (День 32) — бинарные артефакты не коммитим.
+indexes/codebase/
+reports/metrics.json
+.DS_Store

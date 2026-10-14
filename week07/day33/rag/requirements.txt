@@ -1,0 +1,10 @@
+# RAG-индексация документов: окружение
+numpy==1.26.4
+sentence-transformers==2.7.0
+faiss-cpu==1.13.0
+pymupdf==1.24.14
+beautifulsoup4==4.12.3
+requests==2.32.3
+fastapi
+uvicorn
+python-dotenv

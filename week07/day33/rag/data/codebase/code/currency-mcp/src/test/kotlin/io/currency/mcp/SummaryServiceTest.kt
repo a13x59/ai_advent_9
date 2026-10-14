@@ -1,0 +1,1 @@
+../../../../../../../../../../../currency-mcp/src/test/kotlin/io/currency/mcp/SummaryServiceTest.kt

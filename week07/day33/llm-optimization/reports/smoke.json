@@ -1,0 +1,62 @@
+{
+  "args": {
+    "cmd": "run",
+    "label": "smoke",
+    "models": "llama3.1:8b",
+    "options": null,
+    "template": "baseline",
+    "questions": "q1",
+    "runs": 1,
+    "out": "smoke",
+    "no_judge": false
+  },
+  "summary": {
+    "smoke": {
+      "runs": 1,
+      "ok": 1,
+      "errors": 0,
+      "score_mean": 1,
+      "score_std": null,
+      "total_duration_ms_mean": 22661.0,
+      "tokens_per_sec_mean": 22.34,
+      "prompt_tokens_mean": 2407,
+      "load_ms_mean": 3098.1,
+      "rss_mb_max": 5351.9,
+      "loaded_vram_mb": 5019.5
+    }
+  },
+  "rows": [
+    {
+      "id": "q1",
+      "question": "Как работает модель word2vec и какие две архитектуры она использует?",
+      "expectation": "Названы обе архитектуры — CBOW (предсказание слова по контексту) и skip-gram (предсказание контекста по слову); объяснено, что модель обучает векторные представления слов на основе совместной встречаемости.",
+      "label": "smoke",
+      "model": "llama3.1:8b",
+      "options": {
+        "temperature": 0.0,
+        "top_k": 0,
+        "top_p": 1.0,
+        "max_tokens": 1024,
+        "num_ctx": 4096
+      },
+      "template": "baseline",
+      "run": 1,
+      "status": "ok",
+      "answer": "## Ответ\nМодель word2vec работает на основе искусственных нейронных сетей и предназначена для получения векторных представлений слов на естественном языке. Она использует два основных варианта моделирования слов контекста: CBoW (Continuous Bag of Words) и Skip-gram (n-грамма с пропущенным центральным словом) [5].\n\n## Источники\n- [5] source: articles/word2vec.txt | section: == Алгоритмы обучения == | chunk_id: articles/word2vec.txt:structural:0002\n\n## Цитаты\n- [5] «Слова в алгоритме обучения рассматриваются в контексте — окне предварительно определённой ширины 2m+1. Word2vec имеет два варианта моделирования слов контекста (построения предсказывающей модели слов контекста):»",
+      "done_reason": "stop",
+      "eval_count": 205,
+      "prompt_eval_count": 2407,
+      "tokens_per_sec": 22.34,
+      "prompt_tokens_per_sec": 232.63,
+      "eval_duration_ms": 9177.8,
+      "load_duration_ms": 3098.1,
+      "total_duration_ms": 22661.0,
+      "wall_ms": 22668.8,
+      "ollama_rss_mb": 5351.9,
+      "loaded_size_mb": 5019.5,
+      "loaded_size_vram_mb": 5019.5,
+      "score": 1,
+      "rationale": "Названы обе архитектуры (CBoW и Skip-gram), но объяснения их механизмов (предсказание слова по контексту и контекста по слову) отсутствуют; Skip-gram ошибочно описан как 'n-грамма с пропущенным центральным словом'. Упоминание обучения векторных представлений есть, но без ключевой идеи совместной встречаемости."
+    }
+  ]
+}
