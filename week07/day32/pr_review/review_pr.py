@@ -28,7 +28,9 @@ sys.path.insert(0, str(ROOT))  # чтобы импортировать pr_review
 
 from pr_review import engine as eng  # noqa: E402
 from pr_review import github as gh  # noqa: E402
-from pr_review.prompt import render_pr_comment  # noqa: E402
+from pr_review.prompt import (  # noqa: E402
+    SECTION_ARCH, SECTION_BUGS, render_pr_comment, section_has_findings,
+)
 
 AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 
@@ -90,6 +92,18 @@ def _run_script_backend(diff_text: str, args) -> dict:
     }
 
 
+def should_fail(sections: dict, fail_on: str) -> bool:
+    """True, если по политике fail_on надо завалить проверку."""
+    sections = sections or {}
+    has_bugs = section_has_findings(sections.get(SECTION_BUGS, ""))
+    has_arch = section_has_findings(sections.get(SECTION_ARCH, ""))
+    if fail_on == "bugs":
+        return has_bugs
+    if fail_on == "all":
+        return has_bugs or has_arch
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AI-ревью PR")
     parser.add_argument("--diff-file", help="путь к файлу с unified diff")
@@ -111,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="вывести JSON")
     parser.add_argument("--dry-run", action="store_true",
                         help="только разобрать diff и показать план (без вызова LLM)")
+    parser.add_argument("--fail-on", choices=["none", "bugs", "all"],
+                        default=os.environ.get("REVIEW_FAIL_ON", "none"),
+                        help="при каких замечаниях падать с ошибкой: none|bugs|all")
     args = parser.parse_args(argv)
 
     diff_text = _read_diff(args)
@@ -145,8 +162,22 @@ def main(argv: list[str] | None = None) -> int:
         comment = gh.post_pr_comment(body, pr_number=args.pr_number, repo=args.repo)
         data["comment_url"] = comment.get("html_url")
 
+    # Гейт: фейлим проверку, если найдены замечания (--fail-on bugs|all).
+    sections = data.get("sections") or {}
+    has_bugs = section_has_findings(sections.get(SECTION_BUGS, ""))
+    has_arch = section_has_findings(sections.get(SECTION_ARCH, ""))
+    fail = should_fail(sections, args.fail_on)
+    data["fail"] = fail
+    data["findings"] = {"bugs": has_bugs, "architecture": has_arch}
+
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
+
+    if fail:
+        print(f"\n[FAIL] Найдены замечания (fail-on={args.fail_on}). "
+              f"Блокируем PR: баги={has_bugs}, архитектура={has_arch}.",
+              file=sys.stderr)
+        return 2
     return 0
 
 

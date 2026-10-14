@@ -98,7 +98,21 @@ python -m pr_review.review_pr --diff-file pr_review/samples/example_pr.diff --dr
 
 `.github/workflows/pr-review.yml` (в корне репозитория) запускается на
 `pull_request` (opened/synchronize/reopened): скачивает diff через GitHub API, вызывает `review_pr.py` и публикует ревью
-комментарием в PR. Переключатели задаются как Repository variables: `REVIEW_BACKEND`, `REVIEW_PROVIDER`.
+комментарием в PR. Переключатели задаются как Repository variables: `REVIEW_BACKEND`, `REVIEW_PROVIDER`,
+`REVIEW_FAIL_ON`.
+
+### Гейт (fail PR)
+
+Скрипт возвращает **exit 2**, если найдены замечания — тогда шаг и чек падают, и PR не пройдёт. Порог задаётся флагом
+`--fail-on` / переменной `REVIEW_FAIL_ON`:
+
+| Значение                | Поведение                                          |
+|-------------------------|----------------------------------------------------|
+| `none`                  | никогда не фейлить (только комментарий)            |
+| `bugs` (по умолч. в CI) | фейлить при замечаниях в «Потенциальные баги»      |
+| `all`                   | фейлить при замечаниях в багах **или** архитектуре |
+
+Комментарий в PR публикуется в любом случае — до фейла.
 
 ## Тесты
 

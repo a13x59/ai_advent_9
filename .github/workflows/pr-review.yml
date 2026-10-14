@@ -38,24 +38,34 @@ jobs:
             "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR" > /tmp/pr.diff
           echo "Diff lines: $(wc -l < /tmp/pr.diff)"
 
-      # Переключатели:
+      # Переключатели (Repository variables, Settings -> Secrets and variables -> Actions):
       #   REVIEW_BACKEND  = script (по умолчанию) | agent (локально, с запущенным агентом)
       #   REVIEW_PROVIDER = deepseek (по умолчанию) | ollama (локальная модель)
-      # Задаются как Repository variables (Settings -> Secrets and variables -> Actions).
+      #   REVIEW_FAIL_ON  = bugs (по умолчанию) | all | none — при каких замечаниях фейлить PR
+      # Скрипт возвращает exit 2 при найденных замечаниях -> шаг и чек падают.
       - name: Run AI review and post comment
+        id: review
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEW_PROVIDER: ${{ vars.REVIEW_PROVIDER || 'deepseek' }}
           REVIEW_BACKEND: ${{ vars.REVIEW_BACKEND || 'script' }}
+          REVIEW_FAIL_ON: ${{ vars.REVIEW_FAIL_ON || 'bugs' }}
         run: |
           cd week07/day32
           python -m pr_review.review_pr \
             --diff-file /tmp/pr.diff \
             --backend "$REVIEW_BACKEND" \
             --provider "$REVIEW_PROVIDER" \
+            --fail-on "$REVIEW_FAIL_ON" \
             --post-comment \
             --pr-number "${{ github.event.pull_request.number }}" \
             --output /tmp/review.md
-          echo "--- AI review ---" >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/review.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show review in run summary
+        if: always()
+        run: |
+          if [ -f /tmp/review.md ]; then
+            echo "--- AI review ---" >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/review.md >> "$GITHUB_STEP_SUMMARY"
+          fi

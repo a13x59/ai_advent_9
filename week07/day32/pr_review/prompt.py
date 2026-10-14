@@ -16,6 +16,31 @@ SECTION_BUGS = "Потенциальные баги"
 SECTION_ARCH = "Архитектурные проблемы"
 SECTION_RECO = "Рекомендации"
 
+# Маркеры «замечаний нет», по которым гейт НЕ фейлит PR.
+_NO_FINDINGS_MARKERS = (
+    "не обнаружено", "не выявлено", "нет замечаний", "замечаний нет",
+    "no issues", "no problems", "nothing found", "not found", "не найдено",
+)
+
+
+def section_has_findings(text: str) -> bool:
+    """True, если в секции есть реальные замечания (а не «не обнаружено»).
+
+    Проверка построчная: если хотя бы одна непустая строка не является маркером
+    «замечаний нет», считаем, что замечания есть.
+    """
+    t = (text or "").strip()
+    if not t:
+        return False
+    for line in t.splitlines():
+        ln = line.strip()
+        if not ln:
+            continue
+        low = ln.lower()
+        if not any(m in low for m in _NO_FINDINGS_MARKERS):
+            return True
+    return False
+
 REVIEW_SYSTEM = (
     "Ты — старший инженер, выполняющий ревью pull request. "
     "Твой ответ — строгое, конкретное и полезное ревью на русском языке.\n\n"

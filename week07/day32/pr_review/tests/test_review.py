@@ -10,8 +10,11 @@ from pr_review.diff_utils import (  # noqa: E402
     changed_files, chunk_diff, is_generated, parse_diff,
 )
 from pr_review import context as pr_ctx  # noqa: E402
-from pr_review.prompt import build_review_messages, split_sections  # noqa: E402
+from pr_review.prompt import (  # noqa: E402
+    build_review_messages, section_has_findings, split_sections,
+)
 from pr_review.engine import run_review  # noqa: E402
+from pr_review.review_pr import should_fail  # noqa: E402
 
 SAMPLE_DIFF = """\
 diff --git a/agent/storage.py b/agent/storage.py
@@ -82,6 +85,27 @@ def test_build_review_messages_contains_diff_and_files():
     assert msgs[0]["role"] == "system"
     assert "agent/storage.py" in msgs[1]["content"]
     assert "load_working" in msgs[1]["content"]
+
+
+def test_should_fail():
+    buggy = {"Потенциальные баги": "- SQL-инъекция",
+             "Архитектурные проблемы": "не обнаружено"}
+    assert should_fail(buggy, "bugs") is True
+    assert should_fail(buggy, "all") is True
+    assert should_fail(buggy, "none") is False
+    clean = {"Потенциальные баги": "не обнаружено",
+             "Архитектурные проблемы": "не обнаружено"}
+    assert should_fail(clean, "bugs") is False
+    assert should_fail(clean, "all") is False
+
+
+def test_section_has_findings():
+    assert section_has_findings("- Возможен N+1") is True
+    assert section_has_findings("не обнаружено") is False
+    assert section_has_findings("") is False
+    assert section_has_findings("Проблем не обнаружено") is False
+    # смешанный случай: есть реальная строка с замечанием
+    assert section_has_findings("Критичных не обнаружено\n- Утечка соединения") is True
 
 
 def test_normalize_path_handles_monorepo_prefix():
