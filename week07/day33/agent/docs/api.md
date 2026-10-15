@@ -65,6 +65,26 @@
   `POST /agent/{id}/switch`.
 - `GET /agents` — список сессий; `DELETE /agent/{id}` — удалить сессию.
 
+## POST `/support`
+
+Ассистент поддержки пользователей (День 33). Тело — модель `SupportRequest`.
+
+| Поле            | Тип    | По умолчанию   | Назначение                                                       |
+|-----------------|--------|----------------|------------------------------------------------------------------|
+| `message`       | str    | —              | `/support <вопрос>` или `/support --ticket_id=<N> <вопрос>`, либо продолжение |
+| `session_id`    | str?   | —              | ID сессии поддержки (привязка «сессия → тикет»)                 |
+| `model`         | str    | `deepseek-chat`| Название модели                                                  |
+| `temperature`   | float  | `0.3`          | 0..2                                                             |
+| `max_tokens`    | int    | `1024`         | 1..8192                                                          |
+| `customer_email`| str?   | —              | E-mail покупателя для привязки нового тикета                    |
+| `rag_top_k`     | int    | `5`            | Топ-K чанков FAQ                                                 |
+| `rag_mode`      | str    | `baseline`     | `baseline`/`filter`/`rerank`                                     |
+
+Флоу: офтопик-гейт (RAG по корпусу `support`) → резолв/создание тикета через
+support-mcp → привязка к сессии → ответ с учётом тикета. Ответ содержит:
+`response`, `session_id`, `ticket`, `ticket_number`, `ticket_created`,
+`abstained`, `sources`, `duration`.
+
 ## Служебные
 
 - `GET /healthz` — `{ok, service, provider}`.

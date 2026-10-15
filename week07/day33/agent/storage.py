@@ -104,13 +104,14 @@ class HistoryStorage:
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS conversations (
-                        session_id     TEXT PRIMARY KEY,
-                        current_branch TEXT NOT NULL,
-                        strategy       TEXT NOT NULL DEFAULT 'sliding_window',
-                        window_size    INTEGER NOT NULL DEFAULT 10,
-                        profile_id     TEXT,
-                        created_at     TEXT NOT NULL,
-                        updated_at     TEXT NOT NULL
+                        session_id        TEXT PRIMARY KEY,
+                        current_branch    TEXT NOT NULL,
+                        strategy          TEXT NOT NULL DEFAULT 'sliding_window',
+                        window_size       INTEGER NOT NULL DEFAULT 10,
+                        profile_id        TEXT,
+                        support_ticket_id TEXT,
+                        created_at        TEXT NOT NULL,
+                        updated_at        TEXT NOT NULL
                     )
                     """
                 )
@@ -168,6 +169,8 @@ class HistoryStorage:
                 # если таблицы были созданы прежней версией схемы).
                 if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}:
                     conn.execute("ALTER TABLE conversations ADD COLUMN profile_id TEXT")
+                if "support_ticket_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}:
+                    conn.execute("ALTER TABLE conversations ADD COLUMN support_ticket_id TEXT")
                 if "profile_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(long_term_memory)")}:
                     conn.execute("ALTER TABLE long_term_memory ADD COLUMN profile_id TEXT")
                 # working_memory: меняем уникальный ключ на (session_id, profile_id, key),
@@ -330,7 +333,7 @@ class HistoryStorage:
         with self._lock:
             with closing(self._connect()) as conn:
                 session_rows = conn.execute(
-                    "SELECT session_id, current_branch, strategy, window_size, profile_id FROM conversations"
+                    "SELECT session_id, current_branch, strategy, window_size, profile_id, support_ticket_id FROM conversations"
                 ).fetchall()
                 branch_rows = conn.execute(
                     "SELECT branch_id, session_id, name, messages, checkpoint FROM branches"
@@ -366,6 +369,7 @@ class HistoryStorage:
                     "strategy": row["strategy"],
                     "window_size": row["window_size"],
                     "profile_id": row["profile_id"],
+                    "support_ticket_id": row["support_ticket_id"],
                     "branches": {},
                 }
             for row in branch_rows:
@@ -491,6 +495,7 @@ class HistoryStorage:
                 "strategy": session["strategy"],
                 "window_size": session["window_size"],
                 "profile_id": session.get("profile_id"),
+                "support_ticket_id": session.get("support_ticket_id"),
             }
 
     def create_session(
@@ -511,6 +516,7 @@ class HistoryStorage:
                 "strategy": strategy,
                 "window_size": window_size,
                 "profile_id": profile_id,
+                "support_ticket_id": None,
                 "branches": {
                     branch_id: {
                         "name": branch_name,
@@ -584,6 +590,29 @@ class HistoryStorage:
                 conn.execute(
                     "UPDATE conversations SET profile_id = ?, updated_at = ? WHERE session_id = ?",
                     (profile_id, now, session_id),
+                )
+                conn.commit()
+            return True
+
+    # ------------------------------------------------------------------
+    # Связь «сессия ↔ активный тикет поддержки»
+    # ------------------------------------------------------------------
+    def get_support_ticket_id(self, session_id: str) -> Optional[str]:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            return session.get("support_ticket_id") if session else None
+
+    def set_support_ticket_id(self, session_id: str, ticket_number: Optional[str]) -> bool:
+        now = _now()
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return False
+            session["support_ticket_id"] = ticket_number
+            with closing(self._connect()) as conn:
+                conn.execute(
+                    "UPDATE conversations SET support_ticket_id = ?, updated_at = ? WHERE session_id = ?",
+                    (ticket_number, now, session_id),
                 )
                 conn.commit()
             return True

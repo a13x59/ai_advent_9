@@ -7,12 +7,13 @@
 `call_tool(name, args)`. Каждый клиент хранит `SERVER_NAME` для маршрутизации инструментов в цикле function calling
 (`agent_core._run_tool_loop`).
 
-| Клиент              | Сервер                | Адрес   | Инструменты                            |
-|---------------------|-----------------------|---------|----------------------------------------|
-| `FortuneMcpClient`  | `fortune-telling-mcp` | `:8888` | `magic_8_ball`, `bibliomancy`          |
-| `CurrencyMcpClient` | `currency-mcp`        | `:8889` | `get_rate`, `get_summary`              |
-| `PipelineMcpClient` | `pipeline-mcp`        | `:8890` | `search`, `summarize`, `save_to_file`  |
-| `GitMcpClient`      | `git-mcp`             | `:8892` | `git_branch`, `list_files`, `git_diff` |
+| Клиент              | Сервер                | Адрес   | Инструменты                                                                           |
+|---------------------|-----------------------|---------|---------------------------------------------------------------------------------------|
+| `FortuneMcpClient`  | `fortune-telling-mcp` | `:8888` | `magic_8_ball`, `bibliomancy`                                                         |
+| `CurrencyMcpClient` | `currency-mcp`        | `:8889` | `get_rate`, `get_summary`                                                             |
+| `PipelineMcpClient` | `pipeline-mcp`        | `:8890` | `search`, `summarize`, `save_to_file`                                                 |
+| `GitMcpClient`      | `git-mcp`             | `:8892` | `git_branch`, `list_files`, `git_diff`                                                |
+| `SupportMcpClient`  | `support-mcp`         | `:8893` | `create_ticket`, `get_ticket`, `find_user`, `list_tickets_for_user`, `search_tickets` |
 
 Инструменты включаются флагом `enable_tools: true` и моделью, поддерживающей function calling (DeepSeek `deepseek-chat`
 или локальные `llama*`/`qwen*`).
@@ -42,6 +43,23 @@
 Документация проекта подключена в RAG через симлинки в `rag/data/raw/docs/`
 (README агента + `agent/docs/*.md`). Индекс пересобирается командой
 `python -m src.pipeline run` из папки `rag/`.
+
+### support-mcp (ассистент поддержки)
+
+Сервис поддержки (мини-CRM) на SQLite: таблицы `users` и `tickets`, инструменты
+`create_ticket` (write) и read-инструменты (`get_ticket`, `find_user`,
+`list_tickets_for_user`, `search_tickets`). Номер тикета — читаемый (`T-1000+id`).
+
+Эндпоинт `POST /support` использует его детерминированно (не через function calling), как `/help` использует git-mcp:
+резолвит/создаёт тикет и подставляет его контекст в системный блок.
+
+### RAG-корпус `support`
+
+Для поддержки заведён отдельный корпус `support` (`rag/data/support/` →
+`rag/indexes/support/`): FAQ (`faq/*.md`) и документация продукта (`docs/*.md`). Он изолирован от `docs`/`codebase`,
+чтобы ответы поддержки не смешивались с NLP-статьями и кодом проекта. Индекс собирается командой
+`python -m src.pipeline run --corpus support`. Офтопик-гейт `/support` использует поле `below_relevance` из результата
+ретрива.
 
 ## `/help` — как это работает
 

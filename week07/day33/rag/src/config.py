@@ -61,6 +61,13 @@ CORPUSES = {
         "data_dir": ROOT / "data" / "codebase",
         "index_dir": ROOT / "indexes" / "codebase",
     },
+    # «support» — корпус службы поддержки: FAQ + документация о продукте
+    # (интернет-магазин велосипедов). Изолирован от docs/codebase, чтобы ответы
+    # поддержки не смешивались с NLP-корпусом и кодом проекта.
+    "support": {
+        "data_dir": ROOT / "data" / "support",
+        "index_dir": ROOT / "indexes" / "support",
+    },
 }
 
 

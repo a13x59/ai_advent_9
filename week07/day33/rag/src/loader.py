@@ -23,6 +23,8 @@ def _file_type(rel_path: Path) -> str:
     parts = rel_path.parts
     if "pdfs" in parts:
         return "pdf"
+    if "faq" in parts:
+        return "faq"
     if "docs" in parts:
         return "readme"
     if "code" in parts:
@@ -69,7 +71,7 @@ def load_documents(data_dir: str | Path) -> list[Document]:
             continue
         rel = path.relative_to(data)
         # индексируем только стандартные подкаталоги, не служебные файлы
-        if rel.parts[0] not in {"articles", "docs", "code", "pdfs"}:
+        if rel.parts[0] not in {"articles", "docs", "code", "pdfs", "faq"}:
             continue
         if path.suffix.lower() == ".pdf":
             text = _read_pdf(path)

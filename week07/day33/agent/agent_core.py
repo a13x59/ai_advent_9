@@ -124,6 +124,16 @@ SUGGEST_PROMPT = (
     "Если сохранять нечего — верни пустые списки."
 )
 
+# ------------------------------------------------------------
+# Ассистент поддержки (/support)
+# ------------------------------------------------------------
+# Детерминированный ответ при офтопике: вопрос не относится к продукту, и в базе
+# знаний нет релевантных чанков. Тикет при этом НЕ создаётся и НЕ дополняется.
+SUPPORT_ABSTAIN_REPLY = "Нет информации по этому вопросу."
+
+# Аргумент --ticket_id=<N> внутри команды /support.
+_SUPPORT_TICKET_ARG_RE = re.compile(r"--ticket_id\s*=\s*['\"]?([A-Za-z0-9_\-]+)['\"]?")
+
 
 # ------------------------------------------------------------
 # Провайдер модели
@@ -188,6 +198,18 @@ class ReviewRequest(BaseModel):
     temperature: Optional[float] = Field(0.2, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(2048, ge=1, le=8192)
     use_rag: bool = Field(True, description="Использовать RAG (код + документация)")
+
+
+class SupportRequest(BaseModel):
+    """Запрос ассистента поддержки (День 33, эндпоинт /support)."""
+    message: str = Field(..., description="Сообщение: '/support <вопрос>' или '/support --ticket_id=<N> <вопрос>', либо продолжение диалога")
+    session_id: Optional[str] = Field(None, description="ID сессии поддержки (для продолжения диалога в контексте тикета)")
+    model: str = Field("deepseek-chat", description="Название модели")
+    temperature: Optional[float] = Field(0.3, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(1024, ge=1, le=8192)
+    customer_email: Optional[str] = Field(None, description="E-mail покупателя для привязки нового тикета")
+    rag_top_k: int = Field(5, ge=1, le=50, description="Топ-K чанков FAQ")
+    rag_mode: str = Field("baseline", description="Режим RAG: baseline|filter|rerank")
 
 
 class BranchRequest(BaseModel):
@@ -993,6 +1015,127 @@ def _collect_git_context(clients) -> dict:
     return context
 
 
+# ------------------------------------------------------------
+# Ассистент поддержки: парсинг команды, MCP-тикеты, системный блок
+# ------------------------------------------------------------
+def _parse_support_command(message: str) -> dict:
+    """Разбирает сообщение поддержки.
+
+    Возвращает {"question", "ticket_ref", "is_command"}:
+      - '/support <вопрос>'                        → is_command=True, ticket_ref=None;
+      - '/support --ticket_id=<N> <вопрос>'        → is_command=True, ticket_ref=<N>;
+      - обычное сообщение (продолжение диалога)    → is_command=False, ticket_ref=None.
+    """
+    text = (message or "").strip()
+    if not text.startswith("/support"):
+        return {"question": text, "ticket_ref": None, "is_command": False}
+    rest = text[len("/support"):].strip()
+    m = _SUPPORT_TICKET_ARG_RE.search(rest)
+    if m:
+        ticket_ref = m.group(1)
+        question = _SUPPORT_TICKET_ARG_RE.sub("", rest).strip()
+    else:
+        ticket_ref = None
+        question = rest.strip()
+    return {"question": question, "ticket_ref": ticket_ref, "is_command": True}
+
+
+def _find_support_client(clients):
+    """Возвращает MCP-клиент support-mcp из списка клиентов (или None)."""
+    for c in clients or []:
+        if getattr(c, "SERVER_NAME", None) == "support-mcp":
+            return c
+    return None
+
+
+def _support_tool_call(client, name: str, arguments: dict):
+    """Вызывает инструмент support-mcp и возвращает (data_or_None, error_or_None).
+
+    data — распарсенный JSON из результата инструмента (или {} если тело пустое);
+    error — текст ошибки, если инструмент вернул isError или результат не JSON.
+    """
+    res = client.call_tool(name, arguments)
+    if not isinstance(res, dict) or not res.get("ok"):
+        err = (res.get("text") if isinstance(res, dict) else "недоступен") or "ошибка"
+        return None, str(err)
+    text = (res.get("text") or "").strip()
+    if not text:
+        return {}, None
+    try:
+        return json.loads(text), None
+    except (ValueError, TypeError):
+        return {"text": text}, None
+
+
+def build_support_system_block(ticket: Optional[dict], chunks: list) -> str:
+    """Формирует system-блок ассистента поддержки: персона + тикет + FAQ-чанки.
+
+    В отличие от build_rag_system_block (жёсткий формат с [n]-цитатами), здесь
+    «человеческий» ответ для клиента: без маркдаун-заголовков и без обязательного
+    списка источников.
+    """
+    lines = [
+        "Ты — дружелюбный ассистент поддержки интернет-магазина велосипедов «ВелоДом».",
+        "Отвечай на русском языке, вежливо и по существу, простым языком.",
+        "Отвечай ТОЛЬКО на основе приведённых ниже данных тикета и базы знаний; "
+        "не выдумывай фактов, которых нет в контексте.",
+        "Это чат с клиентом, а не отчёт: не используй маркдаун-заголовки и не "
+        "добавляй нумерованный список источников в конец ответа.",
+    ]
+    if ticket:
+        lines.append("\nДАННЫЕ ТИКЕТА:")
+        lines.append(f"- Номер: {ticket.get('number') or ''}")
+        lines.append(f"- Тема: {ticket.get('subject') or ''}")
+        lines.append(f"- Статус: {ticket.get('status') or ''}")
+        first = ticket.get("first_message")
+        if first:
+            lines.append(f"- Первое сообщение клиента: {first}")
+        customer = ticket.get("customer")
+        if isinstance(customer, dict):
+            name = customer.get("name") or ""
+            email = customer.get("email") or ""
+            plan = customer.get("plan") or ""
+            if name or email:
+                lines.append(
+                    f"- Покупатель: {name}" + (f" ({email})" if email else "")
+                    + (f", тариф {plan}" if plan else "")
+                )
+    if chunks:
+        lines.append("\nБАЗА ЗНАНИЙ (FAQ и документация):")
+        for i, c in enumerate(chunks or [], 1):
+            if not isinstance(c, dict):
+                continue
+            title = c.get("title") or ""
+            section = c.get("section") or ""
+            header = f"[{i}] {title}" + (f" — {section}" if section else "")
+            lines.append(f"\n{header}\n{c.get('text', '')}")
+    return "\n".join(lines)
+
+
+def _render_ticket_summary(ticket: Optional[dict]) -> str:
+    """Человекочитаемая сводка тикета (для '/support --ticket_id=<N>' без вопроса)."""
+    number = ticket.get("number") or ""
+    subject = ticket.get("subject") or ""
+    status = ticket.get("status") or ""
+    first = ticket.get("first_message") or ""
+    lines = [f"Тикет №{number}", f"Тема: {subject}", f"Статус: {status}"]
+    if first:
+        lines.append(f"Первое сообщение: {first}")
+    customer = ticket.get("customer")
+    if isinstance(customer, dict):
+        name = customer.get("name") or ""
+        email = customer.get("email") or ""
+        plan = customer.get("plan") or ""
+        if name or email:
+            lines.append(
+                f"Покупатель: {name}" + (f" ({email})" if email else "")
+                + (f", тариф {plan}" if plan else "")
+            )
+    lines.append("")
+    lines.append("Задайте вопрос по этому тикету — ассистент ответит с учётом его контекста.")
+    return "\n".join(lines)
+
+
 def build_profile_system_block(profile) -> str:
     if not profile:
         return ""
@@ -1387,6 +1530,192 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             "context_sources": [b.title for b in context_blocks],
             "provider": type(provider).__name__,
             "model": request.model,
+        }
+
+    @app.post("/support")
+    def support_endpoint(request: SupportRequest):
+        """Ассистент поддержки пользователей (День 33).
+
+        Флоу:
+          1) офтопик-гейт: RAG по корпусу support ДО создания тикета — если
+             релевантных чанков нет, отвечаем «нет информации» и тикет не трогаем;
+          2) резолв/создание тикета через support-mcp:
+             - '/support <вопрос>'         → всегда создаёт новый тикет;
+             - '/support --ticket_id=<N>'  → подгружает тикет N;
+             - обычное сообщение           → продолжает привязанный тикет сессии
+                                              (или создаёт новый, если привязки нет);
+          3) привязка «сессия → тикет», сборка системного блока (персона + тикет +
+             FAQ) и генерация «человеческого» ответа через провайдера.
+        """
+        sid = request.session_id or uuid.uuid4().hex
+        start = time.time()
+
+        parsed = _parse_support_command(request.message)
+        question = parsed["question"].strip()
+        is_command = parsed["is_command"]
+        ticket_ref = parsed["ticket_ref"]
+
+        support_client = _find_support_client(clients)
+        if support_client is None:
+            raise HTTPException(
+                status_code=503,
+                detail="support-mcp не подключён: добавьте SupportMcpClient в create_app.",
+            )
+
+        # '/support --ticket_id=<N>' без вопроса: подгружаем тикет и показываем его сводку.
+        if ticket_ref and not question:
+            data, _err = _support_tool_call(support_client, "get_ticket", {"ticket_id": ticket_ref})
+            if data is None:
+                raise HTTPException(status_code=404, detail=f"Тикет не найден: {ticket_ref}")
+            ticket = data
+            ticket_number = ticket.get("number")
+            if store.get_session_meta(sid) is None:
+                store.create_session(sid, messages=[])
+            store.set_support_ticket_id(sid, ticket_number)
+            return {
+                "session_id": sid,
+                "response": _render_ticket_summary(ticket),
+                "ticket": ticket,
+                "ticket_number": ticket_number,
+                "ticket_created": False,
+                "abstained": False,
+                "sources": [],
+                "duration": round(time.time() - start, 3),
+            }
+
+        if not question:
+            raise HTTPException(
+                status_code=400,
+                detail="Пустой вопрос: используйте '/support <вопрос>'.",
+            )
+
+        # 1. Офтопик-гейт (RAG по корпусу support), до создания тикета.
+        rag_chunks: list = []
+        rag_sources: list = []
+        if rag_retriever is not None:
+            try:
+                rag_result = rag_retriever.retrieve(
+                    question,
+                    strategy="structural",
+                    top_k=request.rag_top_k,
+                    mode=request.rag_mode,
+                    corpus="support",
+                )
+                if isinstance(rag_result, dict) and "chunks" in rag_result:
+                    rag_chunks = rag_result.get("chunks") or []
+                else:
+                    rag_chunks = rag_result or []
+                below = bool(isinstance(rag_result, dict) and rag_result.get("below_relevance"))
+            except Exception as e:  # noqa: BLE001 — RAG опционален
+                logger.warning("Ошибка RAG-ретрива для /support: %s", e)
+                rag_chunks = []
+                below = False
+        else:
+            below = False
+
+        rag_sources = [
+            {
+                "n": i,
+                "source": (c.get("source") or ""),
+                "title": (c.get("title") or ""),
+                "section": (c.get("section") or ""),
+                "score": c.get("score"),
+            }
+            for i, c in enumerate(rag_chunks or [], 1)
+        ]
+
+        if not rag_chunks or below:
+            return {
+                "session_id": sid,
+                "response": SUPPORT_ABSTAIN_REPLY,
+                "ticket": None,
+                "ticket_number": None,
+                "ticket_created": False,
+                "abstained": True,
+                "sources": [],
+                "duration": round(time.time() - start, 3),
+            }
+
+        # 2. Резолв/создание тикета через MCP.
+        ticket: Optional[dict] = None
+        ticket_number: Optional[str] = None
+        created_now = False
+
+        def _create_args() -> dict:
+            args = {"subject": question[:80] or "Вопрос", "message": question}
+            if request.customer_email:
+                args["customer_email"] = request.customer_email
+            return args
+
+        if ticket_ref:
+            data, _err = _support_tool_call(support_client, "get_ticket", {"ticket_id": ticket_ref})
+            if data is None:
+                raise HTTPException(status_code=404, detail=f"Тикет не найден: {ticket_ref}")
+            ticket = data
+            ticket_number = ticket.get("number")
+        elif is_command:
+            data, err = _support_tool_call(support_client, "create_ticket", _create_args())
+            if data is None:
+                raise HTTPException(status_code=502, detail=f"Не удалось создать тикет: {err}")
+            ticket = data
+            ticket_number = ticket.get("number")
+            created_now = True
+        else:
+            active = store.get_support_ticket_id(sid)
+            if active:
+                data, _err = _support_tool_call(support_client, "get_ticket", {"ticket_id": active})
+                if data is not None:
+                    ticket = data
+                    ticket_number = ticket.get("number")
+            if ticket is None:
+                data, err = _support_tool_call(support_client, "create_ticket", _create_args())
+                if data is None:
+                    raise HTTPException(status_code=502, detail=f"Не удалось создать тикет: {err}")
+                ticket = data
+                ticket_number = ticket.get("number")
+                created_now = True
+
+        # 3. Привязка «сессия → тикет» + история диалога.
+        if store.get_session_meta(sid) is None:
+            store.create_session(sid, messages=[])
+        store.set_support_ticket_id(sid, ticket_number)
+
+        history = store.load(sid) or []
+        window = history[-8:] if history else []
+
+        # 4. Сборка контекста и генерация.
+        support_block = build_support_system_block(ticket, rag_chunks)
+        messages = [{"role": "system", "content": support_block}]
+        messages.extend(window)
+        messages.append({"role": "user", "content": question})
+
+        agent_req = AgentRequest(
+            messages=messages,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+        data = provider.complete(messages, agent_req, task=None, user_text=question, tools=None)
+        answer = data.get("choices", [{}])[0].get("message", {}).get("content", "") \
+            if isinstance(data, dict) else str(data)
+        answer = (answer or "").strip()
+
+        response = f"Создан тикет №{ticket_number}.\n\n{answer}" if created_now and ticket_number else answer
+
+        # 5. Сохраняем ход диалога.
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": response})
+        store.save(sid, history)
+
+        return {
+            "session_id": sid,
+            "response": response,
+            "ticket": ticket,
+            "ticket_number": ticket_number,
+            "ticket_created": created_now,
+            "abstained": False,
+            "sources": rag_sources,
+            "duration": round(time.time() - start, 3),
         }
 
     @app.post("/agent")

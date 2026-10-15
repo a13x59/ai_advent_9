@@ -1,57 +1,63 @@
-# День 32. Автоматизация ревью кода
+# День 33. Ассистент поддержки пользователей
 
-Автоматическое AI-ревью PR: пайплайн получает diff, использует RAG (документация + код) и возвращает текст ревью по трём
-секциям — потенциальные баги, архитектурные проблемы, рекомендации.
+AI-ассистент поддержки интернет-магазина велосипедов «ВелоДом»: отвечает на вопросы о продукте по базе знаний
+(RAG), учитывает контекст тикета и покупателя (MCP) и детерминированно отказывается от офтопика.
 
 ## Результат
 
-- **Пайплайн (GitHub Action)** — `.github/workflows/pr-review.yml` (в корне репозитория) запускается на `pull_request`,
-  получает diff через GitHub API, вызывает ревью, публикует комментарий в PR и **фейлит чек** при найденных замечаниях
-  (`--fail-on`, по умолчанию `bugs`).
-- **Движок ревью** — новый пакет `pr_review/`:
-    - `review_pr.py` — CLI (headless/lean, подход B);
-    - `engine.py` / `prompt.py` / `context.py` / `rag_client.py` / `providers.py`
-      / `github.py` / `diff_utils.py`.
-- **Подход A (через агента)** — эндпоинт `POST /review` в `agent/agent_core.py`, полный агентский пайплайн (провайдер
-  агента + RagClient).
-- **RAG (документация + код)** — отдельный индекс кода
-  `rag/indexes/codebase/` + корпус документации `rag/indexes/`; поддержка
-  `--corpus codebase` в `rag/src/pipeline.py`, `retrieval.py`, `server.py`.
-- **Переключатели** — `REVIEW_BACKEND` (`script|agent`) и `REVIEW_PROVIDER`
-  (`deepseek|ollama`), чтобы управлять обеими логиками и сравнивать их.
-- **Пример + тесты** — `pr_review/samples/` (демо-файл с багами) и
-  `pr_review/tests/` + `agent/test_review_endpoint.py`.
+- **Эндпоинт `POST /support`** — в `agent/agent_core.py`. Парсит команду
+  (`/support <вопрос>` / `/support --ticket_id=<N> <вопрос>` / продолжение диалога), делает офтопик-гейт через RAG,
+  резолвит/создаёт тикет через MCP и отвечает «человеческим» языком с учётом тикета.
+- **MCP-сервис `support-mcp`** (Kotlin + SQLite, порт 8893) — мини-CRM: таблицы `users` и `tickets`, инструменты
+  `create_ticket` (write) и `get_ticket` / `find_user` / `list_tickets_for_user` / `search_tickets` (read).
+- **RAG-корпус `support`** — FAQ + документация продукта (`rag/data/support/` → `rag/indexes/support/`), отдельный от
+  `docs`/`codebase`; сборка `python -m src.pipeline run --corpus support`.
+- **Интеграция в агента** — `SupportMcpClient` (`agent/mcp_client.py`), регистрация в `main.py`/`local_main.py`,
+  привязка «сессия → тикет» (`support_ticket_id` в `storage.py`).
+- **Интерфейс** — `agent/support.html` (чат поддержки) + ссылка на главной `agent/index.html`.
+- **Демо и тесты** — `agent/support_demo.py` (4 сценария в консоли), `agent/test_support_endpoint.py`,
+  `support-mcp/src/test/.../SupportDbTest.kt`.
 
 ## Соответствие требованиям
 
-| Требование                        | Где                                                 |
-|-----------------------------------|-----------------------------------------------------|
-| пайплайн запускается на PR        | `.github/workflows/pr-review.yml`                   |
-| ассистент получает diff           | `review_pr.py` (git / API / файл) + `diff_utils.py` |
-| RAG (документация + код)          | `rag_client.py` + корпуса `docs`/`codebase`         |
-| баги / архитектура / рекомендации | `prompt.py` (3 обязательные секции)                 |
-| текст ревью                       | вывод в консоль, файл, комментарий в PR             |
+| Требование                                   | Где                                                              |
+|----------------------------------------------|------------------------------------------------------------------|
+| отвечать на вопросы о продукте               | `POST /support` + персона в `build_support_system_block`          |
+| использовать RAG (FAQ, документация)         | корпус `support` + `rag_retriever.retrieve(..., corpus="support")` |
+| учитывать контекст пользователя/тикета       | `create_ticket`/`get_ticket` → контекст тикета и покупателя в промпте |
+| через MCP: CRM или JSON с пользователями/тикетами | `support-mcp` (SQLite `users` + `tickets`)                    |
+| пример «Почему не работает авторизация?»     | `rag/data/support/faq/avtorizaciya.md` + тикет в `support-mcp`   |
 
 ## Быстрый старт
 
 ```bash
-cd week07/day32
+cd week07/day33
 
-# пошаговый сценарий демонстрации (без ключа)
-python -m pr_review.demo
+# 1. RAG-индекс поддержки + сервис ретрива
+cd rag && python -m src.pipeline run --corpus support
+uvicorn src.server:app --host 0.0.0.0 --port 8891 &
 
-# демо (dry-run, без LLM)
-python -m pr_review.review_pr --diff-file pr_review/samples/example_pr.diff --dry-run
+# 2. support-mcp (тикеты/покупатели)
+cd ../support-mcp && ./gradlew run &          # http://localhost:8893
 
-# полное ревью (нужен DEEPSEEK_API_KEY в .env)
-python -m pr_review.review_pr --diff-file pr_review/samples/example_pr.diff \
-    --provider deepseek --output /tmp/review.md
+# 3. агент (локальная llama3.1 или DeepSeek)
+cd ../agent
+uvicorn local_main:app --host 0.0.0.0 --port 8002   # локальная модель
+# uvicorn main:app --host 0.0.0.0 --port 8000        # DeepSeek
+
+# 4. демо в консоли
+python support_demo.py http://127.0.0.1:8002 --model llama3.1
+
+# или откройте agent/support.html в браузере
 ```
 
-Подробности — в [`pr_review/README.md`](pr_review/README.md).
+## Сценарии поддержки
 
-## Правки шебангов
+| Сообщение                                   | Поведение                                                        |
+|---------------------------------------------|------------------------------------------------------------------|
+| `/support Почему не работает авторизация?`  | создаёт тикет, выводит номер, отвечает по FAQ                    |
+| обычное сообщение (та же сессия)            | продолжает диалог в контексте привязанного тикета                |
+| `/support --ticket_id=T-1001 <вопрос>`      | подгружает тикет N и отвечает в его контексте                    |
+| `/support Кто был 44 президентом США?`      | «Нет информации по этому вопросу» (тикет не создаётся)           |
 
-Консольные скрипты венвов (`agent/.venv`, `rag/.venv`, `llm-optimization/.venv`)
-ссылались на старые пути `week05/day23` / `week06/day29`; исправлены на
-`week07/day32` (46 файлов: шебанги `bin/*` и `VIRTUAL_ENV` в `activate*`).
+Подробности — в `agent/README.md`, `agent/docs/api.md`, `support-mcp/README.md`.

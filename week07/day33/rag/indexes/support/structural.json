@@ -1,0 +1,15 @@
+{
+  "strategy": "structural",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "dim": 384,
+  "faiss_file": "structural.faiss",
+  "db_file": "structural.db",
+  "faiss_size_bytes": 52269,
+  "db_size_bytes": 36864,
+  "n_chunks": 34,
+  "total_chars": 8225,
+  "avg_len": 241.91176470588235,
+  "std_len": 155.80443391090503,
+  "min_len": 17,
+  "max_len": 918
+}
