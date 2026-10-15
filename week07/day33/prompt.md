@@ -72,4 +72,40 @@ AI-ассистент для поддержки пользователей
 Чего не хватает в текущей реализации? Составь список и план реализации, но пока не делай, давай обсудим.
 
 ## Тестовый пример
-todo
+alex@mail.com
+
+/support Какая гарантия на велосипеды?
+какие товары нельзя вернуть?
+
+/support --ticket_id=T-1005
+Как подобрать размер рамы?
+кто 44 президент США?
+
+## Тестовый пример
+Что сделано
+Фаза 0–1 — RAG-корпус support (магазин велосипедов «ВелоДом»)
+
+FAQ + документация: rag/data/support/faq/ (авторизация, заказы/доставка, гарантия/возврат, оплата/сборка) и rag/data/support/docs/.
+rag/src/config.py — корпус support; rag/src/loader.py — поддержка подкаталога faq.
+Индекс собран (34 structural + 15 fixed чанков), релевантность проверена: тема 0.66, офтопик 0.33 (порог 0.5).
+Фаза 2 — MCP-сервис support-mcp (Kotlin + SQLite, порт 8893, по образцу currency-mcp)
+
+Таблицы users + tickets (читаемый номер T-1000+id), сид: 3 покупателя + тикет.
+Инструменты: create_ticket (write), get_ticket, find_user, list_tickets_for_user, search_tickets; REST-эндпоинты.
+Собрано и протестировано: BUILD SUCCESSFUL, тесты зелёные.
+Фаза 3 — интеграция в агента
+
+agent/mcp_client.py — SupportMcpClient; регистрация в main.py
+/local_main.py
+.
+agent/storage.py — колонка support_ticket_id (привязка «сессия → тикет») + методы.
+agent/agent_core.py — модель SupportRequest, парсер команды, build_support_system_block, эндпоинт POST /support с офтопик-гейтом (RAG below_relevance) и резолвом/созданием тикета через MCP.
+Фаза 4 — UI, демо, тесты, документация
+
+agent/support.html (чат поддержки) + ссылка на agent/index.html.
+agent/support_demo.py (4 сценария в консоли), agent/test_support_endpoint.py (6 тестов).
+Обновлены README.md, agent/README.md, agent/docs/api.md, agent/docs/mcp-and-rag.md, deploy/.env.example.
+Проверка
+Python: полный прогон pytest — 66 passed (6 новых + 60 существующих, без регрессий).
+Kotlin: ./gradlew test — BUILD SUCCESSFUL.
+End-to-end (реальный support-mcp + RAG + агент на llama3.1): все 4 сценария работают — создание тикета с номером, офтопик → «Нет информации по этому вопросу», продолжение диалога в контексте тикета, подгрузка по --ticket_id=T-1001 (ассистент даже подхватил имя покупателя «Анна» из контекста тикета).
