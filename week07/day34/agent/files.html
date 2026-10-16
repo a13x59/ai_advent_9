@@ -1,351 +1,726 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>📁 Файловый ассистент</title>
-<style>
-  /* DeepSeek Harness — design tokens (dark) */
-  :root {
-    color-scheme: dark;
-    --bg-base: #151517;
-    --bg-layer: #1b1b1c;
-    --bg-surface: #232324;
-    --bg-elevated: #2c2c2e;
-    --bg-hover: #353638;
-    --label-primary: #f9fafb;
-    --label-secondary: #cfd3d6;
-    --label-tertiary: #adb2b8;
-    --label-muted: #979da6;
-    --border: rgba(255,255,255,.12);
-    --border-strong: rgba(255,255,255,.2);
-    --brand: #4176e6;
-    --brand-strong: #5686fe;
-    --brand-soft: #679efe;
-    --brand-bg: #283142;
-    --green: #4ed17e;
-    --green-strong: #22c55e;
-    --red: #f25a5a;
-    --red-strong: #ef4444;
-    --amber: #f7ad31;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>📁 Файловый ассистент</title>
+    <style>
+        /* DeepSeek Harness — design tokens (dark) */
+        :root {
+            color-scheme: dark;
+            --bg-base: #151517;
+            --bg-layer: #1b1b1c;
+            --bg-surface: #232324;
+            --bg-elevated: #2c2c2e;
+            --bg-hover: #353638;
+            --label-primary: #f9fafb;
+            --label-secondary: #cfd3d6;
+            --label-tertiary: #adb2b8;
+            --label-muted: #979da6;
+            --border: rgba(255, 255, 255, .12);
+            --border-strong: rgba(255, 255, 255, .2);
+            --brand: #4176e6;
+            --brand-strong: #5686fe;
+            --brand-soft: #679efe;
+            --brand-bg: #283142;
+            --green: #4ed17e;
+            --green-strong: #22c55e;
+            --red: #f25a5a;
+            --red-strong: #ef4444;
+            --amber: #f7ad31;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
             "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-  }
+            --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+        }
 
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg-base);
-    color: var(--label-primary);
-    font-family: var(--font);
-    line-height: 1.55;
-    display: flex;
-    justify-content: center;
-  }
+        * {
+            box-sizing: border-box;
+        }
 
-  .app {
-    width: 100%;
-    max-width: 880px;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 1rem 1.25rem 1.25rem;
-    gap: .75rem;
-  }
+        html, body {
+            height: 100%;
+        }
 
-  header { flex: 0 0 auto; }
-  header h1 { font-size: 1.15rem; font-weight: 650; margin: 0; display: flex; align-items: center; gap: .5rem; }
-  header .sub { color: var(--label-muted); font-size: .85rem; margin: .15rem 0 0; }
+        body {
+            margin: 0;
+            background: var(--bg-base);
+            color: var(--label-primary);
+            font-family: var(--font);
+            line-height: 1.55;
+            display: flex;
+            justify-content: center;
+        }
 
-  .controls {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: .6rem;
-    flex-wrap: wrap;
-  }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-layer); }
-  .seg button {
-    border: 0; background: transparent; color: var(--label-tertiary);
-    padding: .45rem .9rem; font-size: .85rem; font-weight: 600; cursor: pointer;
-    font-family: var(--font);
-  }
-  .seg button.active { background: var(--brand-bg); color: var(--label-primary); }
-  select, input, textarea {
-    background: var(--bg-layer); color: var(--label-primary);
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    padding: .45rem .7rem; font-family: var(--font); font-size: .9rem;
-  }
-  select { cursor: pointer; }
-  .spacer { flex: 1; }
-  a.back { color: var(--brand-soft); text-decoration: none; font-size: .85rem; }
-  a.back:hover { text-decoration: underline; }
+        .app {
+            width: 100%;
+            max-width: 880px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem 1.25rem 1.25rem;
+            gap: .75rem;
+        }
 
-  .chat {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    background: var(--bg-layer);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem 1.1rem;
-    display: flex;
-    flex-direction: column;
-    gap: .85rem;
-  }
+        header {
+            flex: 0 0 auto;
+        }
 
-  .msg { max-width: 82%; padding: .6rem .85rem; border-radius: var(--radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .msg.user { align-self: flex-end; background: var(--brand); color: #fff; border-bottom-right-radius: 3px; }
-  .msg.assistant { align-self: flex-start; background: var(--bg-elevated); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
-  .msg.error { align-self: flex-start; background: #3a1b1b; border: 1px solid rgba(239,68,68,.4); color: #ffb4b4; }
+        header h1 {
+            font-size: 1.15rem;
+            font-weight: 650;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
 
-  .badge { align-self: flex-start; font-size: .78rem; color: var(--brand-soft); background: var(--brand-bg);
-           border: 1px solid rgba(86,134,254,.35); border-radius: 999px; padding: .2rem .7rem; }
-  .badge.done { color: var(--green); background: #233c2c; border-color: rgba(78,209,126,.35); }
+        header .sub {
+            color: var(--label-muted);
+            font-size: .85rem;
+            margin: .15rem 0 0;
+        }
 
-  .trace { align-self: stretch; display: flex; flex-direction: column; gap: .35rem; margin-top: .1rem; }
-  .trace-title { font-size: .75rem; color: var(--label-muted); text-transform: uppercase; letter-spacing: .04em; }
-  .trace-line { font-size: .82rem; color: var(--label-tertiary); display: flex; gap: .5rem; align-items: baseline; }
-  .trace-line .tool { font-family: var(--font-mono); color: var(--brand-soft); font-size: .78rem; }
-  .trace-line .args { font-family: var(--font-mono); color: var(--label-muted); font-size: .76rem; overflow-wrap: anywhere; }
-  .trace-line.fail .tool { color: var(--red); }
+        .controls {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            flex-wrap: wrap;
+        }
 
-  .diff-block {
-    align-self: stretch;
-    background: #0f0f0f;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: .7rem .9rem;
-    font-family: var(--font-mono);
-    font-size: .8rem;
-    line-height: 1.5;
-    overflow-x: auto;
-    max-height: 340px;
-    overflow-y: auto;
-  }
-  .diff-block .dline { white-space: pre; }
-  .diff-block .d-add { color: var(--green); }
-  .diff-block .d-del { color: var(--red); }
-  .diff-block .d-hdr { color: var(--label-muted); }
-  .diff-block .d-meta { color: var(--label-tertiary); }
+        .seg {
+            display: inline-flex;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            background: var(--bg-layer);
+        }
 
-  .composer {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: .5rem;
-    background: var(--bg-layer);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: .6rem;
-  }
-  .composer textarea {
-    width: 100%;
-    resize: vertical;
-    min-height: 56px;
-    max-height: 180px;
-    border: 0;
-    background: transparent;
-    outline: none;
-    font-family: var(--font);
-    font-size: .95rem;
-  }
-  .composer .row { display: flex; align-items: center; gap: .6rem; }
-  .composer .row .hint { color: var(--label-muted); font-size: .78rem; flex: 1; }
-  button.send {
-    border: 0; border-radius: var(--radius-sm); background: var(--brand); color: #fff;
-    padding: .55rem 1.3rem; font-weight: 650; font-size: .9rem; cursor: pointer; font-family: var(--font);
-  }
-  button.send:hover { background: var(--brand-strong); }
-  button.send:disabled { opacity: .55; cursor: default; }
-  code { background: var(--bg-elevated); padding: .05rem .35rem; border-radius: 5px; font-family: var(--font-mono); font-size: .85em; }
-</style>
+        .seg button {
+            border: 0;
+            background: transparent;
+            color: var(--label-tertiary);
+            padding: .45rem .9rem;
+            font-size: .85rem;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: var(--font);
+        }
+
+        .seg button.active {
+            background: var(--brand-bg);
+            color: var(--label-primary);
+        }
+
+        select, input, textarea {
+            background: var(--bg-layer);
+            color: var(--label-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: .45rem .7rem;
+            font-family: var(--font);
+            font-size: .9rem;
+        }
+
+        select {
+            cursor: pointer;
+        }
+
+        .spacer {
+            flex: 1;
+        }
+
+        a.back {
+            color: var(--brand-soft);
+            text-decoration: none;
+            font-size: .85rem;
+        }
+
+        a.back:hover {
+            text-decoration: underline;
+        }
+
+        .chat {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            background: var(--bg-layer);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1rem 1.1rem;
+            display: flex;
+            flex-direction: column;
+            gap: .85rem;
+        }
+
+        .msg {
+            max-width: 82%;
+            padding: .6rem .85rem;
+            border-radius: var(--radius-sm);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .msg.user {
+            align-self: flex-end;
+            background: var(--brand);
+            color: #fff;
+            border-bottom-right-radius: 3px;
+        }
+
+        .msg.assistant {
+            align-self: flex-start;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 3px;
+        }
+
+        .msg.error {
+            align-self: flex-start;
+            background: #3a1b1b;
+            border: 1px solid rgba(239, 68, 68, .4);
+            color: #ffb4b4;
+        }
+
+        /* Markdown внутри сообщений ассистента */
+        .msg.assistant {
+            white-space: normal;
+        }
+
+        .msg.assistant h1, .msg.assistant h2, .msg.assistant h3,
+        .msg.assistant h4, .msg.assistant h5, .msg.assistant h6 {
+            margin: .55rem 0 .3rem;
+            color: #c7d2fe;
+            font-size: 1em;
+            font-weight: 650;
+        }
+
+        .msg.assistant h1:first-child, .msg.assistant h2:first-child,
+        .msg.assistant h3:first-child, .msg.assistant p:first-child,
+        .msg.assistant ul:first-child, .msg.assistant ol:first-child,
+        .msg.assistant pre:first-child {
+            margin-top: 0;
+        }
+
+        .msg.assistant p {
+            margin: .3rem 0;
+        }
+
+        .msg.assistant ul, .msg.assistant ol {
+            margin: .3rem 0 .3rem 1.2rem;
+            padding: 0;
+        }
+
+        .msg.assistant li {
+            margin: .15rem 0;
+        }
+
+        .msg.assistant code {
+            background: rgba(0, 0, 0, .3);
+            padding: .08rem .3rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: .85em;
+        }
+
+        .msg.assistant pre {
+            background: rgba(0, 0, 0, .3);
+            padding: .6rem .75rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: .4rem 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .msg.assistant pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .msg.assistant a {
+            color: var(--brand-soft);
+            text-decoration: underline;
+        }
+
+        .msg.assistant strong {
+            font-weight: 650;
+        }
+
+        /* Индикатор «печатает…» (три точки) */
+        .typing-dots {
+            display: inline-flex;
+            gap: 5px;
+            align-items: center;
+            padding: 4px 2px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--brand-soft);
+            animation: typingBlink 1.2s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: .2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: .4s;
+        }
+
+        @keyframes typingBlink {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: .4;
+            }
+            30% {
+                transform: translateY(-4px);
+                opacity: 1;
+            }
+        }
+
+        .badge {
+            align-self: flex-start;
+            font-size: .78rem;
+            color: var(--brand-soft);
+            background: var(--brand-bg);
+            border: 1px solid rgba(86, 134, 254, .35);
+            border-radius: 999px;
+            padding: .2rem .7rem;
+        }
+
+        .badge.done {
+            color: var(--green);
+            background: #233c2c;
+            border-color: rgba(78, 209, 126, .35);
+        }
+
+        .trace {
+            align-self: stretch;
+            display: flex;
+            flex-direction: column;
+            gap: .35rem;
+            margin-top: .1rem;
+        }
+
+        .trace-title {
+            font-size: .75rem;
+            color: var(--label-muted);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .trace-line {
+            font-size: .82rem;
+            color: var(--label-tertiary);
+            display: flex;
+            gap: .5rem;
+            align-items: baseline;
+        }
+
+        .trace-line .tool {
+            font-family: var(--font-mono);
+            color: var(--brand-soft);
+            font-size: .78rem;
+        }
+
+        .trace-line .args {
+            font-family: var(--font-mono);
+            color: var(--label-muted);
+            font-size: .76rem;
+            overflow-wrap: anywhere;
+        }
+
+        .trace-line.fail .tool {
+            color: var(--red);
+        }
+
+        .diff-block {
+            align-self: stretch;
+            background: #0f0f0f;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: .7rem .9rem;
+            font-family: var(--font-mono);
+            font-size: .8rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            max-height: 340px;
+            overflow-y: auto;
+        }
+
+        .diff-block .dline {
+            white-space: pre;
+        }
+
+        .diff-block .d-add {
+            color: var(--green);
+        }
+
+        .diff-block .d-del {
+            color: var(--red);
+        }
+
+        .diff-block .d-hdr {
+            color: var(--label-muted);
+        }
+
+        .diff-block .d-meta {
+            color: var(--label-tertiary);
+        }
+
+        .composer {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: .5rem;
+            background: var(--bg-layer);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: .6rem;
+        }
+
+        .composer textarea {
+            width: 100%;
+            resize: vertical;
+            min-height: 56px;
+            max-height: 180px;
+            border: 0;
+            background: transparent;
+            outline: none;
+            font-family: var(--font);
+            font-size: .95rem;
+        }
+
+        .composer .row {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+        }
+
+        .composer .row .hint {
+            color: var(--label-muted);
+            font-size: .78rem;
+            flex: 1;
+        }
+
+        button.send {
+            border: 0;
+            border-radius: var(--radius-sm);
+            background: var(--brand);
+            color: #fff;
+            padding: .55rem 1.3rem;
+            font-weight: 650;
+            font-size: .9rem;
+            cursor: pointer;
+            font-family: var(--font);
+        }
+
+        button.send:hover {
+            background: var(--brand-strong);
+        }
+
+        button.send:disabled {
+            opacity: .55;
+            cursor: default;
+        }
+
+        code {
+            background: var(--bg-elevated);
+            padding: .05rem .35rem;
+            border-radius: 5px;
+            font-family: var(--font-mono);
+            font-size: .85em;
+        }
+    </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <h1>📁 Файловый ассистент <span style="font-size:.8rem;color:var(--label-muted);font-weight:400">— работает с файлами проекта</span></h1>
-    <p class="sub">Задайте <b>цель</b> (а не «открой файл X»): ассистент сам читает, ищет, анализирует и готовит изменения.</p>
-  </header>
+    <header>
+        <h1>📁 Файловый ассистент <span style="font-size:.8rem;color:var(--label-muted);font-weight:400">— работает с файлами проекта</span>
+        </h1>
+        <p class="sub">Задайте <b>цель</b>: ассистент сам читает, ищет, анализирует и готовит изменения.</p>
+    </header>
 
-  <div class="controls">
-    <div class="seg" id="modeSeg">
-      <button data-mode="false" class="active" title="Только показать diff, файлы не меняются">👁 Предпросмотр</button>
-      <button data-mode="true" title="Сохранить изменения на диск">💾 Применить</button>
+    <div class="controls">
+        <div class="seg" id="modeSeg">
+            <button data-mode="false" class="active" title="Только показать diff, файлы не меняются">👁 Предпросмотр
+            </button>
+            <button data-mode="true" title="Сохранить изменения на диск">💾 Применить</button>
+        </div>
+        <select id="backend" title="Бэкенд агента">
+            <option value="local" selected>🖥 Локальная LLM (Ollama)</option>
+            <option value="cloud">☁ DeepSeek</option>
+        </select>
+        <button id="resetBtn" class="seg"
+                style="padding:.45rem .9rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-layer);color:var(--label-tertiary);font-size:.85rem;font-weight:600;cursor:pointer;font-family:var(--font)">
+            ↺ Новая сессия
+        </button>
+        <div class="spacer"></div>
+        <a class="back" href="index.html">← к агенту</a>
     </div>
-    <select id="backend" title="Бэкенд агента">
-      <option value="local" selected>🖥 Локальная LLM (Ollama)</option>
-      <option value="cloud">☁ DeepSeek</option>
-    </select>
-    <button id="resetBtn" class="seg" style="padding:.45rem .9rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-layer);color:var(--label-tertiary);font-size:.85rem;font-weight:600;cursor:pointer;font-family:var(--font)">↺ Новая сессия</button>
-    <div class="spacer"></div>
-    <a class="back" href="index.html">← к агенту</a>
-  </div>
 
-  <div class="chat" id="chat"></div>
+    <div class="chat" id="chat"></div>
 
-  <div class="composer">
-    <textarea id="message" placeholder="Примеры целей:  найди все места использования PipelineMcpClient ·  сгенерируй ADR по изменениям ·  проверь файлы на нарушение инварианта ·  обнови README на основе кода"></textarea>
-    <div class="row">
-      <span class="hint">Режим: <b id="modeLabel">предпросмотр (diff, без записи)</b></span>
-      <button class="send" id="sendBtn">➤ Выполнить</button>
+    <div class="composer">
+        <label for="message"></label>
+        <textarea id="message"
+                  placeholder="Примеры целей: сгенерируй ADR по изменениям · проверь файлы на нарушение инварианта · обнови README на основе кода"></textarea>
+        <div class="row">
+            <span class="hint">Режим: <b id="modeLabel">предпросмотр (diff, без записи)</b></span>
+            <button class="send" id="sendBtn">➤ Выполнить</button>
+        </div>
     </div>
-  </div>
 </div>
 
 <script>
-(function () {
-  const BACKENDS = {
-    local: { base: 'http://localhost:8002', model: 'llama3.1' },
-    cloud: { base: 'http://localhost:8000', model: 'deepseek-chat' },
-  };
-  const chat = document.getElementById('chat');
-  const messageEl = document.getElementById('message');
-  const backendEl = document.getElementById('backend');
-  const sendBtn = document.getElementById('sendBtn');
-  const resetBtn = document.getElementById('resetBtn');
-  const modeSeg = document.getElementById('modeSeg');
-  const modeLabel = document.getElementById('modeLabel');
+    (function () {
+        const BACKENDS = {
+            local: {base: 'http://localhost:8002', model: 'llama3.1'},
+            cloud: {base: 'http://localhost:8000', model: 'deepseek-chat'},
+        };
+        const chat = document.getElementById('chat');
+        const messageEl = document.getElementById('message');
+        const backendEl = document.getElementById('backend');
+        const sendBtn = document.getElementById('sendBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const modeSeg = document.getElementById('modeSeg');
+        const modeLabel = document.getElementById('modeLabel');
 
-  let sessionId = 'files-' + Math.random().toString(36).slice(2, 10);
-  let applyMode = false;
+        let sessionId = 'files-' + Math.random().toString(36).slice(2, 10);
+        let applyMode = false;
 
-  function add(text, kind, extra) {
-    const div = document.createElement('div');
-    div.className = 'msg ' + kind;
-    div.textContent = text;
-    chat.appendChild(div);
-    if (extra) { chat.appendChild(extra); }
-    chat.scrollTop = chat.scrollHeight;
-    return div;
-  }
+        // === Мини-рендер Markdown (безопасный: сначала экранируем HTML) ===
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text == null ? '' : String(text);
+            return div.innerHTML;
+        }
 
-  function addBadge(text, done) {
-    const div = document.createElement('div');
-    div.className = 'badge' + (done ? ' done' : '');
-    div.textContent = text;
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
-  }
+        function inlineMd(text) {
+            return text
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+                    '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        }
 
-  function renderTrace(calls) {
-    if (!calls || !calls.length) return null;
-    const wrap = document.createElement('div');
-    wrap.className = 'trace';
-    const title = document.createElement('div');
-    title.className = 'trace-title';
-    title.textContent = 'Действия с файлами';
-    wrap.appendChild(title);
-    calls.forEach(function (c) {
-      const line = document.createElement('div');
-      line.className = 'trace-line' + (c.ok ? '' : ' fail');
-      const tool = document.createElement('span');
-      tool.className = 'tool';
-      tool.textContent = (c.ok ? '✓ ' : '✗ ') + c.name;
-      const args = document.createElement('span');
-      args.className = 'args';
-      const a = c.arguments || {};
-      args.textContent = a.path || a.query || '';
-      line.appendChild(tool);
-      line.appendChild(args);
-      wrap.appendChild(line);
-    });
-    return wrap;
-  }
+        function renderMarkdown(md) {
+            if (md == null) return '';
+            let s = escapeHtml(String(md));
 
-  function renderDiff(diffText) {
-    if (!diffText || diffText === 'No pending changes.') return null;
-    const block = document.createElement('div');
-    block.className = 'diff-block';
-    diffText.split('\n').forEach(function (ln) {
-      const line = document.createElement('div');
-      line.className = 'dline';
-      if (ln.startsWith('+++') || ln.startsWith('---')) line.className += ' d-meta';
-      else if (ln.startsWith('@@')) line.className += ' d-hdr';
-      else if (ln.startsWith('+')) line.className += ' d-add';
-      else if (ln.startsWith('-')) line.className += ' d-del';
-      else line.className += ' d-meta';
-      line.textContent = ln;
-      block.appendChild(line);
-    });
-    return block;
-  }
+            // Блоки кода ```...``` — выносим отдельно, чтобы не трогать их строки.
+            const codeBlocks = [];
+            s = s.replace(/```([\s\S]*?)```/g, function (m, code) {
+                const i = codeBlocks.push(code) - 1;
+                return '\u0000CODE' + i + '\u0000';
+            });
 
-  function renderResult(data) {
-    if (data.changed_files && data.changed_files.length) {
-      addBadge((data.applied ? 'Сохранено' : 'Изменения (предпросмотр)') + ': ' + data.changed_files.join(', '), data.applied);
-    }
-    if (data.response) add(data.response, 'assistant');
-    const trace = renderTrace(data.tool_calls);
-    if (trace) chat.appendChild(trace);
-    const diff = renderDiff(data.diff);
-    if (diff) chat.appendChild(diff);
-  }
+            const out = [];
+            let inList = false;
+            const closeList = function () {
+                if (inList) {
+                    out.push('</ul>');
+                    inList = false;
+                }
+            };
 
-  async function send() {
-    const message = messageEl.value.trim();
-    if (!message) return;
-    const backend = BACKENDS[backendEl.value];
-    messageEl.value = '';
-    add(message, 'user');
-    sendBtn.disabled = true;
+            for (const line of s.split('\n')) {
+                const cb = /^\u0000CODE(\d+)\u0000$/.exec(line);
+                if (cb) {
+                    closeList();
+                    out.push('<pre><code>' + codeBlocks[Number(cb[1])] + '</code></pre>');
+                    continue;
+                }
+                const h = /^(#{1,6})\s+(.*)$/.exec(line);
+                if (h) {
+                    closeList();
+                    const lvl = Math.min(h[1].length + 2, 6);
+                    out.push('<h' + lvl + '>' + inlineMd(h[2]) + '</h' + lvl + '>');
+                    continue;
+                }
+                const li = /^\s*[-*]\s+(.*)$/.exec(line);
+                if (li) {
+                    if (!inList) {
+                        out.push('<ul>');
+                        inList = true;
+                    }
+                    out.push('<li>' + inlineMd(li[1]) + '</li>');
+                    continue;
+                }
+                closeList();
+                if (line.trim() === '') continue;
+                out.push('<p>' + inlineMd(line) + '</p>');
+            }
+            closeList();
+            return out.join('');
+        }
 
-    try {
-      const body = {
-        session_id: sessionId,
-        message: message,
-        model: backend.model,
-        apply: applyMode,
-      };
-      const resp = await fetch(backend.base + '/files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
+        // === Индикатор «печатает…» ===
+        function showTyping(on) {
+            const existing = document.getElementById('typingIndicator');
+            if (on) {
+                if (existing) return;
+                const div = document.createElement('div');
+                div.id = 'typingIndicator';
+                div.className = 'msg assistant';
+                div.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>';
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            } else if (existing) {
+                existing.remove();
+            }
+        }
 
-      if (!resp.ok) {
-        add('⚠ ' + (data.detail || ('HTTP ' + resp.status)), 'error');
-        return;
-      }
-      renderResult(data);
-    } catch (e) {
-      add('Ошибка: ' + e + ' (агент или files-mcp не запущены?)', 'error');
-    } finally {
-      sendBtn.disabled = false;
-      messageEl.focus();
-    }
-  }
+        function add(text, kind, extra) {
+            const div = document.createElement('div');
+            div.className = 'msg ' + kind;
+            if (kind === 'assistant') {
+                div.innerHTML = renderMarkdown(text);
+            } else {
+                div.textContent = text;
+            }
+            chat.appendChild(div);
+            if (extra) {
+                chat.appendChild(extra);
+            }
+            chat.scrollTop = chat.scrollHeight;
+            return div;
+        }
 
-  function setMode(mode) {
-    applyMode = mode;
-    Array.from(modeSeg.children).forEach(function (b) {
-      b.classList.toggle('active', String(b.dataset.mode) === String(mode));
-    });
-    modeLabel.textContent = mode ? 'применить (сохранить на диск)' : 'предпросмотр (diff, без записи)';
-  }
+        function addBadge(text, done) {
+            const div = document.createElement('div');
+            div.className = 'badge' + (done ? ' done' : '');
+            div.textContent = text;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
 
-  function reset() {
-    sessionId = 'files-' + Math.random().toString(36).slice(2, 10);
-    chat.innerHTML = '';
-    add('Здравствуйте! Я файловый ассистент. Опишите цель — я сам прочитаю и найду нужные файлы, а изменения покажу как diff.', 'assistant');
-  }
+        function renderTrace(calls) {
+            if (!calls || !calls.length) return null;
+            const wrap = document.createElement('div');
+            wrap.className = 'trace';
+            const title = document.createElement('div');
+            title.className = 'trace-title';
+            title.textContent = 'Действия с файлами';
+            wrap.appendChild(title);
+            calls.forEach(function (c) {
+                const line = document.createElement('div');
+                line.className = 'trace-line' + (c.ok ? '' : ' fail');
+                const tool = document.createElement('span');
+                tool.className = 'tool';
+                tool.textContent = (c.ok ? '✓ ' : '✗ ') + c.name;
+                const args = document.createElement('span');
+                args.className = 'args';
+                const a = c.arguments || {};
+                args.textContent = a.path || a.query || '';
+                line.appendChild(tool);
+                line.appendChild(args);
+                wrap.appendChild(line);
+            });
+            return wrap;
+        }
 
-  modeSeg.addEventListener('click', function (e) {
-    const b = e.target.closest('button[data-mode]');
-    if (b) setMode(b.dataset.mode === 'true');
-  });
-  sendBtn.addEventListener('click', send);
-  messageEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-  });
-  resetBtn.addEventListener('click', reset);
-  reset();
-})();
+        function renderDiff(diffText) {
+            if (!diffText || diffText === 'No pending changes.') return null;
+            const block = document.createElement('div');
+            block.className = 'diff-block';
+            diffText.split('\n').forEach(function (ln) {
+                const line = document.createElement('div');
+                line.className = 'dline';
+                if (ln.startsWith('+++') || ln.startsWith('---')) line.className += ' d-meta';
+                else if (ln.startsWith('@@')) line.className += ' d-hdr';
+                else if (ln.startsWith('+')) line.className += ' d-add';
+                else if (ln.startsWith('-')) line.className += ' d-del';
+                else line.className += ' d-meta';
+                line.textContent = ln;
+                block.appendChild(line);
+            });
+            return block;
+        }
+
+        function renderResult(data) {
+            if (data.changed_files && data.changed_files.length) {
+                addBadge((data.applied ? 'Сохранено' : 'Изменения (предпросмотр)') + ': ' + data.changed_files.join(', '), data.applied);
+            }
+            if (data.response) add(data.response, 'assistant');
+            const trace = renderTrace(data.tool_calls);
+            if (trace) chat.appendChild(trace);
+            const diff = renderDiff(data.diff);
+            if (diff) chat.appendChild(diff);
+        }
+
+        async function send() {
+            const message = messageEl.value.trim();
+            if (!message) return;
+            const backend = BACKENDS[backendEl.value];
+            messageEl.value = '';
+            add(message, 'user');
+            sendBtn.disabled = true;
+            showTyping(true);
+
+            try {
+                const body = {
+                    session_id: sessionId,
+                    message: message,
+                    model: backend.model,
+                    apply: applyMode,
+                };
+                const resp = await fetch(backend.base + '/files', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    add('⚠ ' + (data.detail || ('HTTP ' + resp.status)), 'error');
+                    return;
+                }
+                renderResult(data);
+            } catch (e) {
+                add('Ошибка: ' + e + ' (агент или files-mcp не запущены?)', 'error');
+            } finally {
+                showTyping(false);
+                sendBtn.disabled = false;
+                messageEl.focus();
+            }
+        }
+
+        function setMode(mode) {
+            applyMode = mode;
+            Array.from(modeSeg.children).forEach(function (b) {
+                b.classList.toggle('active', String(b.dataset.mode) === String(mode));
+            });
+            modeLabel.textContent = mode ? 'применить (сохранить на диск)' : 'предпросмотр (diff, без записи)';
+        }
+
+        function reset() {
+            sessionId = 'files-' + Math.random().toString(36).slice(2, 10);
+            chat.innerHTML = '';
+            add('Здравствуйте! Я файловый ассистент. Опишите цель — я сам прочитаю и найду нужные файлы, а изменения покажу как diff.', 'assistant');
+        }
+
+        modeSeg.addEventListener('click', function (e) {
+            const b = e.target.closest('button[data-mode]');
+            if (b) setMode(b.dataset.mode === 'true');
+        });
+        sendBtn.addEventListener('click', send);
+        messageEl.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+            }
+        });
+        resetBtn.addEventListener('click', reset);
+        reset();
+    })();
 </script>
 </body>
 </html>

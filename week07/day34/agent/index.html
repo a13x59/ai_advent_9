@@ -336,11 +336,28 @@
             margin: 10px 0 6px;
             color: #c7d2fe;
         }
-        .bubble h4 { font-size: 15px; }
-        .bubble h3 { font-size: 16px; }
-        .bubble p { margin: 4px 0; }
-        .bubble ul, .bubble ol { margin: 6px 0 6px 18px; padding: 0; }
-        .bubble li { margin: 2px 0; }
+
+        .bubble h4 {
+            font-size: 15px;
+        }
+
+        .bubble h3 {
+            font-size: 16px;
+        }
+
+        .bubble p {
+            margin: 4px 0;
+        }
+
+        .bubble ul, .bubble ol {
+            margin: 6px 0 6px 18px;
+            padding: 0;
+        }
+
+        .bubble li {
+            margin: 2px 0;
+        }
+
         .bubble code {
             background: rgba(0, 0, 0, 0.25);
             padding: 1px 5px;
@@ -348,6 +365,7 @@
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
             font-size: 13px;
         }
+
         .bubble pre {
             background: rgba(0, 0, 0, 0.3);
             padding: 10px 12px;
@@ -355,8 +373,16 @@
             overflow-x: auto;
             margin: 8px 0;
         }
-        .bubble pre code { background: none; padding: 0; }
-        .bubble a { color: #8ab4ff; text-decoration: underline; }
+
+        .bubble pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .bubble a {
+            color: #8ab4ff;
+            text-decoration: underline;
+        }
 
         /* Ввод сообщения — внизу блока чата */
         .message-input {
@@ -423,6 +449,7 @@
             align-items: center;
             padding: 4px 2px;
         }
+
         .typing-dots span {
             width: 8px;
             height: 8px;
@@ -430,12 +457,24 @@
             background: #a29bfe;
             animation: typingBlink 1.2s infinite ease-in-out;
         }
-        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
 
         @keyframes typingBlink {
-            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-            30% { transform: translateY(-4px); opacity: 1; }
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+            30% {
+                transform: translateY(-4px);
+                opacity: 1;
+            }
         }
 
         /* Утилита: скрытие панелей по умолчанию (перекрывает display:flex) */
@@ -851,11 +890,13 @@
         #memoryModal .memory-grid {
             height: 80%;
         }
+
         #memoryModal .memory-col {
             display: flex;
             flex-direction: column;
             min-height: 0;
         }
+
         #memoryModal .memory-list {
             max-height: none;
             flex: 1;
@@ -1308,10 +1349,12 @@
             padding-top: 6px;
             font-size: 12px;
         }
+
         .sources-title {
             font-weight: 700;
             color: #a29bfe;
         }
+
         .sources-box ul {
             margin: 4px 0 0 0;
             padding-left: 18px;
@@ -1324,6 +1367,7 @@
             user-select: none;
             outline: none;
         }
+
         .help-panel summary:hover {
             color: #c7c1ff;
         }
@@ -1335,6 +1379,7 @@
             color: #9aa7bd;
             margin: -4px 0 8px 26px;
         }
+
         .rag-mode-indicator.on {
             color: #81ecec;
         }
@@ -1470,8 +1515,12 @@
         <span class="badge" style="background: linear-gradient(135deg,#00b894,#00cec9)">Memory Layers</span>
     </h1>
     <div style="margin: 0 0 .9rem;">
-        <a href="support.html" target="_blank" style="display:inline-block; text-decoration:none; color:#fff; padding:.35rem .85rem; border-radius:999px; background:linear-gradient(135deg,#6c5ce7,#a29bfe); font-weight:600; font-size:.85rem;">🛠 Поддержка пользователей</a>
-        <a href="files.html" target="_blank" style="display:inline-block; text-decoration:none; color:#fff; padding:.35rem .85rem; border-radius:999px; background:linear-gradient(135deg,#4176e6,#5686fe); font-weight:600; font-size:.85rem;">📁 Файловый ассистент</a>
+        <a href="support.html" target="_blank"
+           style="display:inline-block; text-decoration:none; color:#fff; padding:.35rem .85rem; border-radius:999px; background:linear-gradient(135deg,#6c5ce7,#a29bfe); font-weight:600; font-size:.85rem;">🛠
+            Поддержка пользователей</a>
+        <a href="files.html" target="_blank"
+           style="display:inline-block; text-decoration:none; color:#fff; padding:.35rem .85rem; border-radius:999px; background:linear-gradient(135deg,#4176e6,#5686fe); font-weight:600; font-size:.85rem;">📁
+            Файловый ассистент</a>
     </div>
     <div class="main-grid">
         <!-- Левая панель: настройки -->
@@ -1626,7 +1675,9 @@
                 <button class="tool-btn" id="ballBtn" title="Задать вопрос Magic 8 Ball">🎱 Шар</button>
                 <button class="tool-btn" id="bookBtn" title="Задать вопрос книге (Bibliomancy)">📚 Книга</button>
                 <button class="tool-btn" id="rateBtn" title="Запросить текущий курс EUR/USD">💱 Курс</button>
-                <button class="tool-btn" id="pipelineBtn" title="Найти информацию и сохранить сводку в файл">🔗 Пайплайн</button>
+                <button class="tool-btn" id="pipelineBtn" title="Найти информацию и сохранить сводку в файл">🔗
+                    Пайплайн
+                </button>
             </div>
 
             <div class="message-input">
@@ -1708,7 +1759,8 @@
             <label class="profile-field-label" for="profileFormat">Формат ответа</label>
             <textarea id="profileFormat" rows="2" placeholder="напр. markdown со списками, без воды"></textarea>
             <label class="profile-field-label" for="profileConstraints">Ограничения</label>
-            <textarea id="profileConstraints" rows="2" placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
+            <textarea id="profileConstraints" rows="2"
+                      placeholder="напр. без англицизмов, не более 5 пунктов"></textarea>
             <label class="profile-field-label" for="profileNotes">Дополнительно</label>
             <textarea id="profileNotes" rows="2" placeholder="напр. отвечай на «ты»"></textarea>
             <div class="profile-actions">
@@ -1817,7 +1869,8 @@
             <textarea id="invStatement" rows="2" placeholder="напр. Весь код пишется только на Python 3.11"></textarea>
             <label class="inv-field-label" for="invRationale">Почему нельзя нарушать</label>
             <textarea id="invRationale" rows="2" placeholder="напр. команда стандартизировала стек"></textarea>
-            <label class="inv-field-label" for="invDenyExamples">Примеры нарушений (через запятую; для мок-проверки)</label>
+            <label class="inv-field-label" for="invDenyExamples">Примеры нарушений (через запятую; для
+                мок-проверки)</label>
             <input id="invDenyExamples" placeholder="напр. go, rust, node, c++">
             <label class="checkbox-row" style="margin:0 0 8px;">
                 <input type="checkbox" id="invActive" checked style="width:auto;">
@@ -2037,7 +2090,12 @@
 
         const out = [];
         let inList = false;
-        const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+        const closeList = () => {
+            if (inList) {
+                out.push('</ul>');
+                inList = false;
+            }
+        };
 
         for (const line of s.split('\n')) {
             const cb = /^\u0000CODE(\d+)\u0000$/.exec(line);
@@ -2055,7 +2113,10 @@
             }
             const li = /^\s*[-*]\s+(.*)$/.exec(line);
             if (li) {
-                if (!inList) { out.push('<ul>'); inList = true; }
+                if (!inList) {
+                    out.push('<ul>');
+                    inList = true;
+                }
                 out.push('<li>' + inlineMd(li[1]) + '</li>');
                 continue;
             }
@@ -2075,7 +2136,7 @@
         const opts = options || {};
         const headers = Object.assign({}, opts.headers || {});
         if (API_KEY) headers['X-Api-Key'] = API_KEY;
-        const res = await fetch(`${API_BASE}${url}`, Object.assign({}, opts, { headers }));
+        const res = await fetch(`${API_BASE}${url}`, Object.assign({}, opts, {headers}));
         if (!res.ok) {
             let detail = 'Ошибка сервера';
             try {
@@ -2181,7 +2242,10 @@
         if (help.git && Object.keys(help.git).length) {
             const gitHtml = Object.entries(help.git).map(([k, v]) => {
                 let text = String(v == null ? '' : v);
-                try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* не JSON — как есть */ }
+                try {
+                    text = JSON.stringify(JSON.parse(text), null, 2);
+                } catch (e) { /* не JSON — как есть */
+                }
                 return `<div class="tool-args"><b>${escapeHtml(k)}</b><div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px;font-size:.8rem">${escapeHtml(text)}</div></div>`;
             }).join('');
             body += `<div class="sources-box"><span class="sources-title">🌿 git</span>${gitHtml}</div>`;
@@ -2198,7 +2262,8 @@
     function quickHelp() {
         messageEl.value = '/help расскажи о структуре проекта';
         messageEl.focus();
-        sendRe
+        sendRequest();
+    }
 
     function quickBall() {
         const q = prompt('Вопрос для Magic 8 Ball:', 'Сдам ли я экзамен по сопромату?');
@@ -2444,7 +2509,8 @@
             const data = await apiFetch(`/memory/longterm${q}`);
             memory.long_term = data.long_term || [];
             renderMemory();
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     // Рабочая память сессии (список задач) в разрезе профиля.
@@ -2455,7 +2521,8 @@
             memory.working = data.working || [];
             memory.long_term = data.long_term || [];
             renderMemory();
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     // Перечитываем и задачи, и долговременную память под текущий профиль.
@@ -2597,7 +2664,8 @@
             activeProfileId = data.active_profile_id || null;
             renderProfiles();
             fillProfileForm(getActiveProfile());
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     async function saveProfile() {
@@ -2703,7 +2771,8 @@
                 currentTaskId = active;
             }
             renderTask();
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     function renderTask() {
@@ -2781,7 +2850,8 @@
             const msgs = (data.task && data.task.messages) || [];
             history = msgs.length ? msgs : [];
             renderChat();
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     async function selectTask(taskId) {
@@ -2902,7 +2972,8 @@
             const data = await apiFetch('/invariants');
             invariants = data.invariants || [];
             renderInvariants();
-        } catch (err) { /* сервер недоступен */ }
+        } catch (err) { /* сервер недоступен */
+        }
     }
 
     async function saveInvariant() {
@@ -2924,13 +2995,22 @@
         const scope = invScope.value;
         if (scope === 'profile') {
             const pid = currentProfileId();
-            if (!pid) { alert('Для скоупа «профиль» нужен активный профиль'); return; }
+            if (!pid) {
+                alert('Для скоупа «профиль» нужен активный профиль');
+                return;
+            }
             body.profile_id = pid;
         } else if (scope === 'session') {
-            if (!sessionId) { alert('Для скоупа «сессия» нужен активный диалог'); return; }
+            if (!sessionId) {
+                alert('Для скоупа «сессия» нужен активный диалог');
+                return;
+            }
             body.session_id = sessionId;
         } else if (scope === 'task') {
-            if (!currentTaskId) { alert('Для скоупа «задача» нужна активная задача'); return; }
+            if (!currentTaskId) {
+                alert('Для скоупа «задача» нужна активная задача');
+                return;
+            }
             body.task_id = currentTaskId;
         }
         if (editingInvariantId) body.invariant_id = editingInvariantId;
@@ -3321,8 +3401,12 @@
     invSaveBtn.addEventListener('click', saveInvariant);
     invNewBtn.addEventListener('click', newInvariant);
     invariantOpenBtn.addEventListener('click', () => openModal('invariantModal'));
-    toggleStatsBtn.addEventListener('click', () => { statsPanel.hidden = !statsPanel.hidden; });
-    toggleQuickBtn.addEventListener('click', () => { quickTools.hidden = !quickTools.hidden; });
+    toggleStatsBtn.addEventListener('click', () => {
+        statsPanel.hidden = !statsPanel.hidden;
+    });
+    toggleQuickBtn.addEventListener('click', () => {
+        quickTools.hidden = !quickTools.hidden;
+    });
 
     // Закрытие модальных окон: по крестику, клику по фону и клавише Esc.
     document.querySelectorAll('.modal-overlay').forEach(ov => {
