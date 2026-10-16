@@ -20,6 +20,7 @@ CURRENCY_MCP_BASE_URL = os.environ.get("CURRENCY_MCP_BASE_URL", "http://localhos
 PIPELINE_MCP_BASE_URL = os.environ.get("PIPELINE_MCP_BASE_URL", "http://localhost:8890")
 GIT_MCP_BASE_URL = os.environ.get("GIT_MCP_BASE_URL", "http://localhost:8892")
 SUPPORT_MCP_BASE_URL = os.environ.get("SUPPORT_MCP_BASE_URL", "http://localhost:8893")
+FILES_MCP_BASE_URL = os.environ.get("FILES_MCP_BASE_URL", "http://localhost:8894")
 # Пайплайн-инструменты (особенно search через async Yandex v2) могут выполняться дольше.
 PIPELINE_MCP_TIMEOUT = float(os.environ.get("PIPELINE_MCP_TIMEOUT", "90"))
 MCP_TIMEOUT = float(os.environ.get("MCP_TIMEOUT", "10"))
@@ -257,3 +258,18 @@ class SupportMcpClient(McpClient):
 
     def __init__(self, base_url: str = None, timeout: float = None):
         super().__init__(base_url=base_url or SUPPORT_MCP_BASE_URL, timeout=timeout)
+
+
+class FilesMcpClient(McpClient):
+    """Клиент файловых инструментов (list_dir, read_file, search_files, write_file,
+    edit_file, diff, apply_changes, discard_changes).
+
+    Используется файловым ассистентом (эндпоинт POST /files): читает/ищет файлы
+    проекта, готовит правки (dry-run) и по запросу сохраняет их через apply_changes.
+    """
+
+    CLIENT_NAME = "agent-files-client"
+    SERVER_NAME = "files-mcp"
+
+    def __init__(self, base_url: str = None, timeout: float = None):
+        super().__init__(base_url=base_url or FILES_MCP_BASE_URL, timeout=timeout)

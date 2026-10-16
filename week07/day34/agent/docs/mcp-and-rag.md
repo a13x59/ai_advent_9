@@ -7,13 +7,14 @@
 `call_tool(name, args)`. Каждый клиент хранит `SERVER_NAME` для маршрутизации инструментов в цикле function calling
 (`agent_core._run_tool_loop`).
 
-| Клиент              | Сервер                | Адрес   | Инструменты                                                                           |
-|---------------------|-----------------------|---------|---------------------------------------------------------------------------------------|
-| `FortuneMcpClient`  | `fortune-telling-mcp` | `:8888` | `magic_8_ball`, `bibliomancy`                                                         |
-| `CurrencyMcpClient` | `currency-mcp`        | `:8889` | `get_rate`, `get_summary`                                                             |
-| `PipelineMcpClient` | `pipeline-mcp`        | `:8890` | `search`, `summarize`, `save_to_file`                                                 |
-| `GitMcpClient`      | `git-mcp`             | `:8892` | `git_branch`, `list_files`, `git_diff`                                                |
-| `SupportMcpClient`  | `support-mcp`         | `:8893` | `create_ticket`, `get_ticket`, `find_user`, `list_tickets_for_user`, `search_tickets` |
+| Клиент              | Сервер                | Адрес   | Инструменты                                                                                                    |
+|---------------------|-----------------------|---------|----------------------------------------------------------------------------------------------------------------|
+| `FortuneMcpClient`  | `fortune-telling-mcp` | `:8888` | `magic_8_ball`, `bibliomancy`                                                                                  |
+| `CurrencyMcpClient` | `currency-mcp`        | `:8889` | `get_rate`, `get_summary`                                                                                      |
+| `PipelineMcpClient` | `pipeline-mcp`        | `:8890` | `search`, `summarize`, `save_to_file`                                                                          |
+| `GitMcpClient`      | `git-mcp`             | `:8892` | `git_branch`, `list_files`, `git_diff`                                                                         |
+| `SupportMcpClient`  | `support-mcp`         | `:8893` | `create_ticket`, `get_ticket`, `find_user`, `list_tickets_for_user`, `search_tickets`                          |
+| `FilesMcpClient`    | `files-mcp`           | `:8894` | `list_dir`, `read_file`, `search_files`, `write_file`, `edit_file`, `diff`, `apply_changes`, `discard_changes` |
 
 Инструменты включаются флагом `enable_tools: true` и моделью, поддерживающей function calling (DeepSeek `deepseek-chat`
 или локальные `llama*`/`qwen*`).
@@ -43,6 +44,22 @@
 Документация проекта подключена в RAG через симлинки в `rag/data/raw/docs/`
 (README агента + `agent/docs/*.md`). Индекс пересобирается командой
 `python -m src.pipeline run` из папки `rag/`.
+
+### files-mcp (файловый ассистент)
+
+Сервис файловых операций над проектом (День 34), скоуп `FILES_ROOT`:
+
+- `list_dir` — список файлов подкаталога (файловая система, включая untracked);
+- `read_file` — чтение файла (целиком или диапазон строк);
+- `search_files` — grep по нескольким файлам (`query`, `path`, `glob`, `regex`);
+- `write_file` / `edit_file` — создание/перезапись и точечная правка;
+- `diff` / `apply_changes` / `discard_changes` — управление «стейджингом».
+
+Ключевая модель — **dry-run по умолчанию**: `write_file`/`edit_file` не пишут на диск, а стейджат правку и возвращают
+unified diff; запись — только через явный
+`apply_changes`. Абсолютные пути и path traversal отвергаются. Эндпоинт
+`POST /files` гонит ассистента по этому циклу через function calling (`_run_tool_loop`), а применение/предпросмотр
+выполняет детерминированно.
 
 ### support-mcp (ассистент поддержки)
 

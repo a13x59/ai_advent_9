@@ -36,7 +36,7 @@ from agent_core import (
     INVARIANT_CHECK_TEMPERATURE,
     INVARIANT_CHECK_MAX_TOKENS,
 )
-from mcp_client import FortuneMcpClient, CurrencyMcpClient, PipelineMcpClient, GitMcpClient, SupportMcpClient
+from mcp_client import FortuneMcpClient, CurrencyMcpClient, PipelineMcpClient, GitMcpClient, SupportMcpClient, FilesMcpClient
 from rag_client import RagClient
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
@@ -151,6 +151,7 @@ app = create_app(
         PipelineMcpClient(),
         GitMcpClient(),
         SupportMcpClient(),
+        FilesMcpClient(),
     ],
     rag_retriever=RagClient(),
 )

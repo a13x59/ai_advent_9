@@ -9,7 +9,7 @@ LocalOllamaProvider, который ходит в локальный серве�
 """
 from local_provider import LocalOllamaProvider
 from agent_core import create_app
-from mcp_client import FortuneMcpClient, CurrencyMcpClient, PipelineMcpClient, GitMcpClient, SupportMcpClient
+from mcp_client import FortuneMcpClient, CurrencyMcpClient, PipelineMcpClient, GitMcpClient, SupportMcpClient, FilesMcpClient
 from rag_client import RagClient
 
 
@@ -21,6 +21,7 @@ app = create_app(
         PipelineMcpClient(),
         GitMcpClient(),
         SupportMcpClient(),
+        FilesMcpClient(),
     ],
     rag_retriever=RagClient(),
 )

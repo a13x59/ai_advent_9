@@ -212,6 +212,24 @@ class SupportRequest(BaseModel):
     rag_mode: str = Field("baseline", description="Режим RAG: baseline|filter|rerank")
 
 
+class FilesRequest(BaseModel):
+    """Запрос файлового ассистента (День 34, эндпоинт /files).
+
+    message — задача на уровне ЦЕЛИ (например «найди все места использования X»,
+    «сгенерируй ADR по изменениям», «проверь файлы по инварианту»); ассистент сам
+    решает, какие файлы читать/искать/менять.
+    apply   — False (по умолчанию): dry-run, вернуть только diff без записи;
+              True: применить изменения на диск и вернуть итоговый diff.
+    """
+    message: str = Field(..., description="Цель/задача для файлового ассистента")
+    session_id: Optional[str] = Field(None, description="ID сессии (для истории диалога)")
+    model: str = Field("deepseek-chat", description="Название модели")
+    temperature: Optional[float] = Field(0.3, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(2048, ge=1, le=8192)
+    apply: bool = Field(False, description="Применить изменения (True) или только показать diff (False)")
+    max_cycles: int = Field(8, ge=1, le=20, description="Максимум раундов вызова инструментов")
+
+
 class BranchRequest(BaseModel):
     checkpoint: Optional[int] = Field(None, description="Индекс сообщения, от которого ветвимся")
 
@@ -1136,6 +1154,63 @@ def _render_ticket_summary(ticket: Optional[dict]) -> str:
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------
+# Файловый ассистент (/files)
+# ------------------------------------------------------------
+def _find_files_client(clients):
+    """Возвращает MCP-клиент files-mcp из списка клиентов (или None)."""
+    for c in clients or []:
+        if getattr(c, "SERVER_NAME", None) == "files-mcp":
+            return c
+    return None
+
+
+def _files_tool_call(client, name: str, arguments: dict):
+    """Вызывает инструмент files-mcp и возвращает (data_or_None, error_or_None).
+
+    data — распарсенный JSON из результата инструмента (или {} если тело пустое);
+    error — текст ошибки, если инструмент вернул isError или результат не JSON.
+    """
+    res = client.call_tool(name, arguments)
+    if not isinstance(res, dict) or not res.get("ok"):
+        err = (res.get("text") if isinstance(res, dict) else "недоступен") or "ошибка"
+        return None, str(err)
+    text = (res.get("text") or "").strip()
+    if not text:
+        return {}, None
+    try:
+        return json.loads(text), None
+    except (ValueError, TypeError):
+        return {"text": text}, None
+
+
+def build_files_system_block(apply: bool) -> str:
+    """Персона файлового ассистента: работа по ЦЕЛИ + режим dry-run/apply."""
+    mode = (
+        "РЕЖИМ ПРИМЕНИТЬ (apply): после твоих правок изменения будут сохранены на диск "
+        "автоматически. Проверь результат через diff перед финальным ответом."
+        if apply
+        else "РЕЖИМ ПРЕДПРОСМОТР (dry-run): НИЧЕГО не сохраняй на диск. "
+        "Только покажи план и итоговый diff (вызови инструмент diff)."
+    )
+    return "\n".join([
+        "Ты — файловый ассистент проекта. Пользователь задаёт ЦЕЛЬ, а не конкретную команду.",
+        "Работай с файлами САМ, в несколько шагов:",
+        "1) разведай структуру (list_dir) и найди нужные файлы (search_files);",
+        "2) прочитай файлы (read_file; большие файлы читай диапазонами строк);",
+        "3) проанализируй содержимое и выполни цель;",
+        "4) вноси изменения через edit_file (точечная замена) или write_file "
+        "(новый файл / полная перезапись).",
+        "Инструменты правки НЕ пишут на диск сразу, а возвращают diff — это нормально, "
+        "diff не означает, что файл уже сохранён.",
+        mode,
+        "Отвечай на русском, по существу, без воды.",
+        "Не выдумывай содержимое файлов: всегда читай файл перед его правкой.",
+        "В конце ответа перечисли: что сделано, какие файлы затронуты, и приведи diff "
+        "изменений (если они есть).",
+    ])
+
+
 def build_profile_system_block(profile) -> str:
     if not profile:
         return ""
@@ -1715,6 +1790,90 @@ def create_app(provider: AgentProvider, store: Optional[HistoryStorage] = None,
             "ticket_created": created_now,
             "abstained": False,
             "sources": rag_sources,
+            "duration": round(time.time() - start, 3),
+        }
+
+    @app.post("/files")
+    def files_endpoint(request: FilesRequest):
+        """Файловый ассистент (День 34).
+
+        Принимает задачу на уровне ЦЕЛИ и автономно работает с файлами через files-mcp:
+        разведка (list_dir/search_files/read_file) → анализ → правки (write_file/edit_file).
+
+        apply=False (по умолчанию) — dry-run: правки стейджатся, но на диск НЕ пишутся;
+        возвращается только итоговый diff. apply=True — правки применяются на диск.
+        Применение/предпросмотр выполняются детерминированно (не зависят от того,
+        вызовет ли модель apply_changes сама) — это гарантирует воспроизводимость.
+        """
+        sid = request.session_id or uuid.uuid4().hex
+        start = time.time()
+
+        files_client = _find_files_client(clients)
+        if files_client is None:
+            raise HTTPException(
+                status_code=503,
+                detail="files-mcp не подключён: добавьте FilesMcpClient в create_app.",
+            )
+
+        goal = (request.message or "").strip()
+        if not goal:
+            raise HTTPException(
+                status_code=400,
+                detail="Пустая задача: опишите цель для файлового ассистента.",
+            )
+
+        # Сброс стейджинга: каждый запрос начинается с чистого листа (воспроизводимость).
+        _files_tool_call(files_client, "discard_changes", {})
+
+        block = build_files_system_block(apply=request.apply)
+        messages = [{"role": "system", "content": block}]
+        messages.append({"role": "user", "content": goal})
+
+        agent_req = AgentRequest(
+            messages=messages,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+
+        content, tool_calls_info, _data = _run_tool_loop(
+            provider, agent_req, messages, [files_client], goal, max_cycles=request.max_cycles
+        )
+
+        # Детерминированное применение / предпросмотр изменений.
+        applied = False
+        diff_text = ""
+        changed_files: List[str] = []
+        if request.apply:
+            apply_data, _err = _files_tool_call(files_client, "apply_changes", {})
+            if apply_data:
+                applied_list = apply_data.get("applied") or []
+                if isinstance(applied_list, list):
+                    changed_files = [str(p) for p in applied_list]
+                diff_text = apply_data.get("diff") or ""
+                applied = bool(changed_files)
+        else:
+            diff_data, _err = _files_tool_call(files_client, "diff", {})
+            diff_text = (diff_data.get("diff") if diff_data else "") or ""
+            _files_tool_call(files_client, "discard_changes", {})
+
+        # Если apply не вернул список, восстановим затронутые пути из трейса инструментов.
+        if not changed_files:
+            seen: List[str] = []
+            for tc in tool_calls_info or []:
+                if tc.get("ok") and tc.get("name") in ("write_file", "edit_file"):
+                    p = (tc.get("arguments") or {}).get("path")
+                    if p and p not in seen:
+                        seen.append(str(p))
+            changed_files = seen
+
+        return {
+            "session_id": sid,
+            "response": (content or "").strip(),
+            "applied": applied,
+            "diff": diff_text,
+            "changed_files": changed_files,
+            "tool_calls": tool_calls_info,
             "duration": round(time.time() - start, 3),
         }
 

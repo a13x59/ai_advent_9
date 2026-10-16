@@ -78,5 +78,7 @@ certbot --nginx -d your.domain.com   # или: certbot certonly --standalone -d 
   торчать. Весь доступ — только через агента с `X-Api-Key`.
 - **RAG опционально:** если поднять `rag/src/server.py` на 8891, агент сможет
   отвечать по базе знаний (`RAG_BASE_URL=http://127.0.0.1:8891`). MCP-сервисы
-  на VPS не разворачиваются.
+  (git-mcp, support-mcp, files-mcp) на VPS не разворачиваются — их инструменты
+  доступны только локально. Эндпоинты `/files`, `/support` и `/review` проксируются
+  nginx'ом к агенту (с `X-Api-Key`), но без запущенного MCP вернут 503.
 - Службы: `ai-agent` (агент), `ollama` (модель), `nginx` (прокси).
