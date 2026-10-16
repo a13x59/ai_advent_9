@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🛠 Поддержка — ВелоДом</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 1.5rem 1rem; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: #0f1420; color: #e8edf6; line-height: 1.55; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { display: flex; align-items: center; gap: .6rem; margin: 0 0 .3rem; }
+  .sub { color: #9aa7bd; margin: 0 0 1.2rem; }
+  .bar { display: flex; gap: .6rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  select, input { padding: .55rem .7rem; border-radius: 8px; border: 1px solid #3a4c70; background: #0f1420; color: #e8edf6; }
+  select { cursor: pointer; }
+  .chat { background: #172033; border: 1px solid #2a3a58; border-radius: 14px; padding: 1rem 1.2rem;
+          min-height: 320px; max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: .8rem; }
+  .msg { max-width: 80%; padding: .6rem .9rem; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: #2f6fed; color: white; border-bottom-right-radius: 3px; }
+  .msg.assistant { align-self: flex-start; background: #1c2940; border: 1px solid #2a3a58; border-bottom-left-radius: 3px; }
+  .msg.abstain { background: #3a2b1c; border: 1px solid #6b4a1f; color: #ffd9a0; }
+  .ticket-line { align-self: flex-start; font-size: .85rem; color: #a29bfe; background: #221d3a;
+                 border: 1px solid #4a3f7a; border-radius: 8px; padding: .35rem .7rem; }
+  .src { font-size: .78rem; color: #7f8db0; margin-top: .35rem; }
+  .src a { color: #7fa6ff; }
+  .input-row { display: flex; gap: .6rem; margin-top: 1rem; }
+  .input-row input { flex: 1; }
+  button { padding: .6rem 1.2rem; border: none; border-radius: 8px; background: #2f6fed; color: white;
+           font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: .5; cursor: default; }
+  .hint { color: #9aa7bd; font-size: .82rem; margin-top: .8rem; }
+  code { background: #1c2940; padding: .1rem .35rem; border-radius: 5px; }
+  .back { color: #7fa6ff; text-decoration: none; font-size: .9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛠 Поддержка <span class="sub" style="margin:0">— интернет-магазин велосипедов «ВелоДом»</span></h1>
+  <p class="sub">Ассистент отвечает по базе знаний (RAG) и учитывает контекст тикета (MCP).</p>
+
+  <div class="bar">
+    <select id="backend" title="Бэкенд агента">
+      <option value="local" selected>🖥️ Локальная LLM (Ollama)</option>
+      <option value="cloud">☁️ DeepSeek</option>
+    </select>
+    <input id="email" type="text" placeholder="e-mail покупателя (необязательно)" style="min-width: 220px">
+    <button id="resetBtn" title="Начать новую сессию поддержки" style="background:#3a4c70">↺ Новая сессия</button>
+    <a class="back" href="index.html">← к агенту</a>
+  </div>
+
+  <div class="chat" id="chat"></div>
+
+  <div class="input-row">
+    <input id="message" type="text" placeholder="/support Почему не работает авторизация?  или  /support --ticket_id=T-1001 ...">
+    <button id="sendBtn">➤ Отправить</button>
+  </div>
+
+  <p class="hint">
+    Примеры: <code>/support Почему не работает авторизация?</code> ·
+    <code>/support --ticket_id=T-1001 Что делать?</code> ·
+    обычное сообщение продолжает текущий тикет · офтопик → «нет информации».
+  </p>
+</div>
+
+<script>
+(function () {
+  const BACKENDS = {
+    local: { base: 'http://localhost:8002', model: 'llama3.1' },
+    cloud: { base: 'http://localhost:8000', model: 'deepseek-chat' },
+  };
+  const chat = document.getElementById('chat');
+  const messageEl = document.getElementById('message');
+  const emailEl = document.getElementById('email');
+  const backendEl = document.getElementById('backend');
+  const sendBtn = document.getElementById('sendBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let sessionId = 'support-' + Math.random().toString(36).slice(2, 10);
+
+  function add(text, kind, extra) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + kind;
+    div.textContent = text;
+    chat.appendChild(div);
+    if (extra) {
+      const s = document.createElement('div');
+      s.className = 'src';
+      s.innerHTML = extra;
+      chat.appendChild(s);
+    }
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  function addTicketLine(number) {
+    const div = document.createElement('div');
+    div.className = 'ticket-line';
+    div.textContent = '🎫 ' + number;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  async function send() {
+    const message = messageEl.value.trim();
+    if (!message) return;
+    const backend = BACKENDS[backendEl.value];
+    messageEl.value = '';
+    add(message, 'user');
+    sendBtn.disabled = true;
+
+    try {
+      const body = {
+        session_id: sessionId,
+        message: message,
+        model: backend.model,
+      };
+      const email = emailEl.value.trim();
+      if (email) body.customer_email = email;
+
+      const resp = await fetch(backend.base + '/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        add('⚠ ' + (data.detail || ('HTTP ' + resp.status)), 'abstain');
+        return;
+      }
+
+      if (data.ticket_number) addTicketLine('Тикет №' + data.ticket_number + (data.ticket_created ? ' (создан)' : ''));
+      if (data.response) add(data.response, data.abstained ? 'abstain' : 'assistant');
+
+      if (data.sources && data.sources.length) {
+        const links = data.sources
+          .map(s => '<a href="#" title="score: ' + (s.score == null ? '' : s.score.toFixed(2)) + '">' +
+            escapeHtml(s.source) + (s.section ? ' · ' + escapeHtml(s.section) : '') + '</a>')
+          .join(' · ');
+        add('📎 Источники', 'assistant', links);
+      }
+    } catch (e) {
+      add('Ошибка: ' + e + ' (агент или сервисы не запущены?)', 'abstain');
+    } finally {
+      sendBtn.disabled = false;
+      messageEl.focus();
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function reset() {
+    sessionId = 'support-' + Math.random().toString(36).slice(2, 10);
+    chat.innerHTML = '';
+    add('Здравствуйте! Я ассистент поддержки «ВелоДом». Задайте вопрос о продукте.', 'assistant');
+  }
+
+  sendBtn.addEventListener('click', send);
+  messageEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  resetBtn.addEventListener('click', reset);
+  reset();
+})();
+</script>
+</body>
+</html>
