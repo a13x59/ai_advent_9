@@ -1,7 +1,7 @@
 # Guitar Tab Service
 
-Веб-сервис: принимает аудиофайл с гитарной партией и возвращает табулатуру в
-стандартном строе шестиструнной гитары (EADGBE) + MIDI.
+Веб-сервис: принимает аудиофайл с гитарной партией и возвращает табулатуру в стандартном строе шестиструнной гитары
+(EADGBE) + MIDI.
 
 ## Архитектура
 
@@ -15,8 +15,8 @@
               └─ гейт качества: детерминированные проверки + DeepSeek
 ```
 
-- **`app/`** — Kotlin + Ktor. Приём файла, конвертация, вызов воркера, раскладка
-  по струнам, табулатура, оценка качества, раздача фронтенда.
+- **`app/`** — Kotlin + Ktor. Приём файла, конвертация, вызов воркера, раскладка по струнам, табулатура, оценка
+  качества, раздача фронтенда.
 - **`worker/`** — Python FastAPI + [Basic Pitch](https://github.com/spotify/basic-pitch)
   (используется «как есть»). `POST /predict` принимает WAV-байты, возвращает MIDI.
 - **`deploy.sh`** — развёртывание на VPS (Ubuntu + Docker).
@@ -57,8 +57,7 @@ ssh user@91.188.212.37 'cd /opt/tab-generator && ./deploy.sh'
 
 ### `POST /api/transcribe`
 
-Тело запроса — сырые байты аудиофайла (WAV/MP3/M4A), заголовок `Content-Type` —
-MIME-тип файла. Пример:
+Тело запроса — сырые байты аудиофайла (WAV/MP3/M4A), заголовок `Content-Type` — MIME-тип файла. Пример:
 
 ```bash
 curl --data-binary @solo.wav -H "Content-Type: audio/wav" \
@@ -73,7 +72,11 @@ curl --data-binary @solo.wav -H "Content-Type: audio/wav" \
   "midiBase64": "TVRoZAAAAAYAAQ…",
   "quality": "ok",
   "qualityReason": null,
-  "meta": { "durationSec": 12.4, "noteCount": 42, "tuning": "EADGBE" }
+  "meta": {
+    "durationSec": 12.4,
+    "noteCount": 42,
+    "tuning": "EADGBE"
+  }
 }
 ```
 
@@ -89,21 +92,20 @@ curl --data-binary @solo.wav -H "Content-Type: audio/wav" \
 
 ## Переменные окружения
 
-| Переменная          | По умолчанию          | Описание |
-|---------------------|-----------------------|----------|
-| `PORT`              | `8080`                | Порт приложения |
-| `WORKER_URL`        | `http://localhost:8000` | Адрес Python-воркера |
-| `DEEPSEEK_API_KEY`  | *(пусто)*             | Ключ DeepSeek (заполняете сами) |
-| `DEEPSEEK_MODEL`    | `deepseek-chat`       | Модель DeepSeek |
-| `ENABLE_LLM_GATE`   | `true`                | Включить LLM-гейт качества |
-| `FFMPEG_PATH`       | `ffmpeg`              | Путь к ffmpeg |
+| Переменная         | По умолчанию            | Описание                        |
+|--------------------|-------------------------|---------------------------------|
+| `PORT`             | `8080`                  | Порт приложения                 |
+| `WORKER_URL`       | `http://localhost:8000` | Адрес Python-воркера            |
+| `DEEPSEEK_API_KEY` | *(пусто)*               | Ключ DeepSeek (заполняете сами) |
+| `DEEPSEEK_MODEL`   | `deepseek-chat`         | Модель DeepSeek                 |
+| `ENABLE_LLM_GATE`  | `true`                  | Включить LLM-гейт качества      |
+| `FFMPEG_PATH`      | `ffmpeg`                | Путь к ffmpeg                   |
 
 ## Гейт качества
 
-1. Детерминированные проверки: непустой результат, ноты в диапазоне гитары
-   (лады 0–24, строй EADGBE).
-2. Если включён `ENABLE_LLM_GATE` и задан ключ — DeepSeek оценивает
-   правдоподобность/играбельность табулатуры (JSON-вердикт `ok`/`reason`).
+1. Детерминированные проверки: непустой результат, ноты в диапазоне гитары (лады 0–24, строй EADGBE).
+2. Если включён `ENABLE_LLM_GATE` и задан ключ — DeepSeek оценивает правдоподобность/играбельность табулатуры
+   (JSON-вердикт `ok`/`reason`).
 
 При сбое LLM — fail-open (результат отдаётся по детерминированным проверкам).
 
