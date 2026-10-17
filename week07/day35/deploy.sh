@@ -28,6 +28,9 @@ if ! docker compose version >/dev/null 2>&1; then
   echo "    Плагин docker compose не найден. Проверьте установку Docker." >&2
   exit 1
 fi
+# Добавляем текущего пользователя в группу docker (действует после перелогина).
+# Текущий запуск всё равно идёт через sudo (as_root), поэтому работает сразу.
+as_root usermod -aG docker "$(id -un)" 2>/dev/null || true
 
 echo "==> [2/5] Проверка .env"
 if [ ! -f .env ]; then
@@ -37,10 +40,10 @@ if [ ! -f .env ]; then
 fi
 
 echo "==> [3/5] Сборка образов"
-docker compose build
+as_root docker compose build
 
 echo "==> [4/5] Запуск сервисов"
-docker compose up -d
+as_root docker compose up -d
 
 echo "==> [5/5] Готово"
 APP_PORT=$(grep -E '^APP_PORT=' .env 2>/dev/null | cut -d= -f2 || true)
@@ -53,4 +56,4 @@ echo "Сервис доступен по адресу: http://${IP}:${APP_PORT}"
 echo "Проверка: curl http://localhost:${APP_PORT}/api/health"
 echo ""
 echo "Первый запуск может занять 1–2 минуты (загрузка образа и инициализация модели)."
-echo "Статус воркера: docker compose logs -f worker"
+echo "Логи: sudo docker compose logs -f worker   (после перелогина — без sudo)"

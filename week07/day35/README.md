@@ -38,12 +38,18 @@
 
 ### Продакшен (VPS, Ubuntu)
 
+Два шага: загрузить файлы (rsync) и запустить на сервере.
+
 ```bash
-git clone <репозиторий> && cd <папка>
-# заполнить DEEPSEEK_API_KEY в .env (или export DEEPSEEK_API_KEY=...)
-cp .env.example .env   # и отредактировать
-./deploy.sh
+# 1) локально — загрузить файлы (исключая git/кэши/venv/.env)
+./deploy-rsync.sh
+
+# 2) на сервере — собрать и запустить
+ssh user@91.188.212.37 'cd /opt/tab-generator && ./deploy.sh'
 ```
+
+На сервере `deploy.sh` сам создаст `.env` из `.env.example` — заполните там
+`DEEPSEEK_API_KEY`. Альтернатива rsync — `git clone <репозиторий>` в ту же папку.
 
 Сервис будет доступен на `http://<IP_VPS>:8080`.
 
