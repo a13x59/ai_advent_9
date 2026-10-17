@@ -1,0 +1,25 @@
+# Kotlin / Gradle
+.gradle/
+build/
+*.class
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env / secrets
+.env
+
+# Локальный рантайм (PID-файлы и логи run-local.sh)
+.run/
+
+# OS
+.DS_Store

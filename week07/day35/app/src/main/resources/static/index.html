@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Guitar Tab — аудио → табулатура</title>
+    <style>
+        :root {
+            --bg: #1a1c1e;
+            --panel: #212427;
+            --bubble: #2a2d30;
+            --bubble-border: #33373b;
+            --accent: #4d6bfe;
+            --accent-soft: rgba(77, 107, 254, 0.14);
+            --text: #e8eaed;
+            --muted: #9aa0a6;
+            --good: #34c759;
+            --warn: #f5a623;
+            --bad: #ff5f56;
+            --radius: 14px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body { height: 100%; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app {
+            max-width: 780px;
+            height: 100dvh;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ---------- header ---------- */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px 12px;
+            border-bottom: 1px solid var(--bubble-border);
+        }
+        .logo {
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #4d6bfe, #7a5cff);
+            display: grid; place-items: center;
+            font-size: 22px;
+            box-shadow: 0 4px 14px rgba(77, 107, 254, 0.35);
+        }
+        .header h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .2px; }
+        .header .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+        .status {
+            margin-left: auto;
+            display: flex; align-items: center; gap: 7px;
+            font-size: 12px; color: var(--muted);
+        }
+        .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--muted);
+        }
+        .dot.online { background: var(--good); box-shadow: 0 0 8px rgba(52,199,89,.7); }
+
+        /* ---------- chat ---------- */
+        .chat {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 20px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            scroll-behavior: smooth;
+        }
+        .msg {
+            display: flex;
+            gap: 10px;
+            max-width: 88%;
+            animation: rise .25s ease;
+        }
+        @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+        .msg .avatar {
+            width: 30px; height: 30px; flex: 0 0 30px;
+            border-radius: 8px;
+            display: grid; place-items: center;
+            font-size: 15px;
+        }
+        .msg.assistant .avatar { background: var(--accent-soft); }
+        .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+        .msg.user .avatar { background: #363a3f; }
+
+        .bubble {
+            padding: 12px 14px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            line-height: 1.55;
+            word-wrap: break-word;
+            min-width: 0;
+        }
+        .msg.assistant .bubble {
+            background: var(--bubble);
+            border: 1px solid var(--bubble-border);
+            border-top-left-radius: 4px;
+        }
+        .msg.user .bubble {
+            background: var(--accent);
+            color: #fff;
+            border-top-right-radius: 4px;
+        }
+
+        .bubble .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 11.5px; font-weight: 600;
+            padding: 3px 9px; border-radius: 999px;
+        }
+        .badge.ok { background: rgba(52,199,89,.15); color: var(--good); }
+        .badge.warn { background: rgba(245,166,35,.15); color: var(--warn); }
+        .badge.err { background: rgba(255,95,86,.15); color: var(--bad); }
+        .bubble .hint { font-size: 12px; color: var(--muted); }
+
+        .tab {
+            background: #15171a;
+            border: 1px solid var(--bubble-border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre;
+            overflow-x: auto;
+            color: #7ee787;
+            margin: 0;
+        }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 9px;
+            padding: 8px 14px;
+            font-size: 13px; font-weight: 500;
+            cursor: pointer;
+            transition: filter .15s;
+        }
+        .btn:hover { filter: brightness(1.12); }
+        .btn.ghost {
+            background: var(--bubble);
+            border: 1px solid var(--bubble-border);
+            color: var(--text);
+        }
+
+        .filecard {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .filecard .ic { font-size: 20px; }
+        .filecard .nm { font-weight: 600; font-size: 13.5px; }
+        .filecard .sz { font-size: 12px; opacity: .85; }
+
+        /* typing dots */
+        .typing { display: inline-flex; gap: 5px; align-items: center; padding: 4px 2px; }
+        .typing span {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--muted);
+            animation: blink 1.2s infinite both;
+        }
+        .typing span:nth-child(2) { animation-delay: .2s; }
+        .typing span:nth-child(3) { animation-delay: .4s; }
+        @keyframes blink { 0%, 80%, 100% { opacity: .25; transform: scale(.85); } 40% { opacity: 1; transform: scale(1); } }
+
+        /* ---------- composer ---------- */
+        .composer {
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px 16px 16px;
+            background: linear-gradient(transparent, var(--bg) 30%);
+        }
+        .composer-inner {
+            flex: 1;
+            display: flex; align-items: center; gap: 10px;
+            background: var(--panel);
+            border: 1px solid var(--bubble-border);
+            border-radius: 16px;
+            padding: 8px 8px 8px 14px;
+            transition: border-color .15s;
+        }
+        .composer-inner:focus-within { border-color: var(--accent); }
+
+        .attach {
+            width: 34px; height: 34px;
+            border: none; border-radius: 10px;
+            background: transparent; color: var(--muted);
+            font-size: 18px; cursor: pointer;
+            display: grid; place-items: center;
+            transition: background .15s;
+        }
+        .attach:hover { background: var(--bubble); }
+
+        .fileinfo {
+            flex: 1;
+            font-size: 13.5px;
+            color: var(--muted);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .fileinfo.ready { color: var(--text); font-weight: 500; }
+
+        .send {
+            width: 36px; height: 36px;
+            border: none; border-radius: 11px;
+            background: var(--accent); color: #fff;
+            font-size: 16px; cursor: pointer;
+            display: grid; place-items: center;
+            transition: filter .15s, opacity .15s;
+        }
+        .send:disabled { opacity: .35; cursor: not-allowed; }
+        .send:not(:disabled):hover { filter: brightness(1.12); }
+
+        .footnote {
+            text-align: center;
+            font-size: 11.5px; color: var(--muted);
+            padding: 2px 0 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="logo">🎸</div>
+            <div>
+                <h1>Guitar Tab</h1>
+                <p class="sub">Аудио → табулатура · строй EADGBE</p>
+            </div>
+            <div class="status">
+                <span class="dot" id="statusDot"></span>
+                <span id="statusText">проверка…</span>
+            </div>
+        </header>
+
+        <main class="chat" id="chat"></main>
+
+        <footer class="composer">
+            <div class="composer-inner">
+                <button class="attach" id="attachBtn" title="Прикрепить аудиофайл">📎</button>
+                <div class="fileinfo" id="fileInfo">Выберите аудиофайл…</div>
+                <button class="send" id="sendBtn" title="Транскрибировать" disabled>➤</button>
+            </div>
+        </footer>
+        <p class="footnote">Поддерживаются WAV / MP3 / M4A · соло и чистые партии работают лучше всего</p>
+    </div>
+
+    <input type="file" id="fileInput" accept="audio/*,.wav,.mp3,.m4a" hidden>
+
+    <script>
+        const chat = document.getElementById('chat');
+        const fileInput = document.getElementById('fileInput');
+        const attachBtn = document.getElementById('attachBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const fileInfo = document.getElementById('fileInfo');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        let selectedFile = null;
+
+        function scrollDown() { chat.scrollTop = chat.scrollHeight; }
+
+        function fmtSize(n) {
+            if (n < 1024) return n + ' Б';
+            if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' КБ';
+            return (n / (1024 * 1024)).toFixed(1) + ' МБ';
+        }
+
+        function addMessage(role, contentHtml, avatar) {
+            const m = document.createElement('div');
+            m.className = 'msg ' + role;
+            m.innerHTML =
+                '<div class="avatar">' + avatar + '</div>' +
+                '<div class="bubble">' + contentHtml + '</div>';
+            chat.appendChild(m);
+            scrollDown();
+            return m;
+        }
+
+        function addTyping() {
+            const m = document.createElement('div');
+            m.className = 'msg assistant';
+            m.id = 'typing';
+            m.innerHTML =
+                '<div class="avatar">🎸</div>' +
+                '<div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
+            chat.appendChild(m);
+            scrollDown();
+            return m;
+        }
+        function removeTyping() { const t = document.getElementById('typing'); if (t) t.remove(); }
+
+        function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function showError(text) {
+            addMessage('assistant', '<span class="badge err">✕ ошибка</span><div style="margin-top:6px">' + esc(text) + '</div>', '🎸');
+        }
+
+        // приветствие
+        addMessage('assistant',
+            'Привет! Загрузи аудиофайл с гитарной партией — я распознаю ноты и соберу табулатуру в ' +
+            'стандартном строе <b>EADGBE</b>, а также отдам MIDI.', '🎸');
+
+        // Определяем базовый адрес API: если страницу отдаёт наше приложение — тот же origin,
+        // иначе (например, файл открыт через IDE-превью) — http://localhost:8080.
+        let API_BASE = '';
+        (async function initApi() {
+            try {
+                const r = await fetch('/api/health', { cache: 'no-store' });
+                if (r.ok && (await r.text()) === 'OK') return; // same-origin (наше приложение)
+            } catch (e) { /* не наше приложение */ }
+            API_BASE = 'http://localhost:8080';
+        })().then(() => {
+            fetch(API_BASE + '/api/health')
+                .then(r => {
+                    if (r.ok) { statusDot.classList.add('online'); statusText.textContent = 'онлайн'; }
+                    else { statusDot.classList.remove('online'); statusText.textContent = 'офлайн'; }
+                })
+                .catch(() => { statusDot.classList.remove('online'); statusText.textContent = 'офлайн'; });
+
+            if (API_BASE !== '') {
+                addMessage('assistant',
+                    '<span class="hint">⚠ Страница открыта не через приложение — запросы идут на ' + API_BASE +
+                    '. Лучше открыть <b>' + API_BASE + '</b> напрямую.</span>', '🎸');
+            }
+        });
+
+        attachBtn.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            selectedFile = fileInput.files[0] || null;
+            if (selectedFile) {
+                fileInfo.textContent = selectedFile.name + ' · ' + fmtSize(selectedFile.size);
+                fileInfo.classList.add('ready');
+                sendBtn.disabled = false;
+            } else {
+                fileInfo.textContent = 'Выберите аудиофайл…';
+                fileInfo.classList.remove('ready');
+                sendBtn.disabled = true;
+            }
+        });
+
+        sendBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            addMessage('user',
+                '<div class="filecard"><span class="ic">🎵</span>' +
+                '<div><div class="nm">' + esc(selectedFile.name) + '</div>' +
+                '<div class="sz">' + fmtSize(selectedFile.size) + ' · готов к транскрипции</div></div></div>',
+                '🎧');
+
+            sendBtn.disabled = true;
+            addTyping();
+
+            try {
+                const resp = await fetch(API_BASE + '/api/transcribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': selectedFile.type || 'application/octet-stream' },
+                    body: selectedFile
+                });
+
+                let data = null;
+                try { data = await resp.json(); } catch (e) { /* не JSON */ }
+
+                removeTyping();
+
+                if (!resp.ok) {
+                    showError((data && data.error) ? data.error : 'Сервер вернул статус ' + resp.status);
+                    return;
+                }
+
+                const ok = data.quality === 'ok';
+                const badge = ok
+                    ? '<span class="badge ok">✓ качество ok</span>'
+                    : '<span class="badge warn">⚠ ' + esc(data.qualityReason || 'предупреждение') + '</span>';
+
+                const meta = '<span class="hint">нот: ' + data.meta.noteCount +
+                    ' · ' + data.meta.durationSec + ' с · строй ' + data.meta.tuning + '</span>';
+
+                const dl = data.midiBase64
+                    ? '<button class="btn" id="dlBtn">⬇ Скачать MIDI</button>'
+                    : '';
+
+                const m = addMessage('assistant',
+                    '<div class="meta">' + badge + meta + '</div>' +
+                    '<pre class="tab">' + esc(data.tab) + '</pre>' +
+                    (dl ? '<div style="margin-top:10px">' + dl + '</div>' : ''),
+                    '🎸');
+
+                if (data.midiBase64) {
+                    m.querySelector('#dlBtn').addEventListener('click', () => downloadMidi(data.midiBase64));
+                }
+            } catch (e) {
+                removeTyping();
+                showError('Не удалось выполнить запрос: ' + e.message);
+            } finally {
+                sendBtn.disabled = false;
+            }
+        });
+
+        function downloadMidi(b64) {
+            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: 'audio/midi' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'transcription.mid';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(a.href);
+        }
+    </script>
+</body>
+</html>

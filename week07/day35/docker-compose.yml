@@ -1,0 +1,24 @@
+services:
+  worker:
+    build: ./worker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  app:
+    build: ./app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      WORKER_URL: http://worker:8000
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      ENABLE_LLM_GATE: ${ENABLE_LLM_GATE:-true}
+      FFMPEG_PATH: ffmpeg
+    depends_on:
+      - worker
